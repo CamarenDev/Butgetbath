@@ -1,0 +1,17 @@
+{
+  "name": "budget-bath-solutions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Budget Bath Solutions website",
+  "scripts": {
+    "build": "node build.js",
+    "start": "node build.js && node --env-file-if-exists=.env server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "bootstrap": "5.3.9"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,139 @@
+const http = require('node:http');
+const path = require('node:path');
+const fs = require('node:fs/promises');
+const { openDb } = require('./lib/db');
+const { createMailer, createReceiver } = require('./lib/mailer');
+const { createTemplates } = require('./lib/emails');
+const { createApi } = require('./lib/api');
+
+const distDir = path.join(__dirname, 'dist');
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.xml': 'application/xml; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
+const WINDOW = 10 * 60 * 1000;
+
+const headers = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'X-Frame-Options': 'DENY',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+};
+
+function createServer({
+  dataDir = process.env.DATA_DIR || path.join(__dirname, 'data'),
+  siteUrl = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  mailer = createMailer(),
+  notifyEmail = process.env.NOTIFY_EMAIL || '',
+  adminEmails = (process.env.ADMIN_EMAILS || '').split(','),
+  replyDomain = process.env.REPLY_DOMAIN || '',
+  webhookSecret = process.env.RESEND_WEBHOOK_SECRET || '',
+  receiver = process.env.RESEND_API_KEY ? createReceiver() : null,
+  trustProxy = process.env.TRUST_PROXY === '1'
+} = {}) {
+  const db = openDb(dataDir);
+  const templates = createTemplates(siteUrl);
+  const api = createApi({ db, dataDir, mailer, templates, siteUrl, notifyEmail, adminEmails, replyDomain, webhookSecret, receiver, trustProxy, secureCookies: siteUrl.startsWith('https://') });
+  const recent = new Map();
+
+  const sendJson = (res, status, body) => {
+    res.writeHead(status, { ...headers, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(body));
+  };
+  const mail = async message => { try { await mailer(message); } catch (error) { console.error('Email failed:', error.message); } };
+
+  async function readBody(req, limit) {
+    let size = 0;
+    const chunks = [];
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > limit) return null;
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  }
+
+  async function submit(req, res) {
+    const ip = trustProxy ? (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress : req.socket.remoteAddress;
+    const now = Date.now();
+    const times = (recent.get(ip) || []).filter(t => now - t < WINDOW);
+    if (times.length >= 10) return sendJson(res, 429, { error: 'Too many requests. Please try again later.' });
+    times.push(now);
+    recent.set(ip, times);
+    if (recent.size > 10000) for (const [key, list] of recent) if (now - list[list.length - 1] >= WINDOW) recent.delete(key);
+
+    if (!(req.headers['content-type'] || '').toLowerCase().startsWith('application/json')) return sendJson(res, 415, { error: 'Please submit the form from the website.' });
+    const raw = await readBody(req, 16000);
+    if (raw === null) return sendJson(res, 413, { error: 'Your message is too long.' });
+    let input;
+    try { input = JSON.parse(raw); } catch { return sendJson(res, 400, { error: 'Please check the form and try again.' }); }
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return sendJson(res, 400, { error: 'Please check the form and try again.' });
+
+    // Bots fill the hidden field; pretend success without saving.
+    if (typeof input.website === 'string' && input.website.trim()) return sendJson(res, 201, { message: 'Thanks!' });
+
+    const clean = {};
+    for (const field of ['type', 'name', 'email', 'phone', 'location', 'interest', 'message']) {
+      const value = input[field] === undefined ? '' : input[field];
+      if (typeof value !== 'string' || value.trim().length > (field === 'message' ? 4000 : 200)) return sendJson(res, 400, { error: 'Please check the form fields and try again.' });
+      clean[field] = value.trim();
+    }
+    if (!['project', 'work', 'question'].includes(clean.type) || !clean.name || !clean.location || !clean.interest || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email) || input.consent !== true) {
+      return sendJson(res, 400, { error: 'Please complete the required fields and agree to the privacy policy.' });
+    }
+    clean.receivedAt = new Date().toISOString();
+    try {
+      await fs.appendFile(path.join(dataDir, 'submissions.jsonl'), JSON.stringify(clean) + '\n', { mode: 0o600 });
+    } catch (error) {
+      console.error('Unable to save submission:', error);
+      return sendJson(res, 500, { error: 'We could not send your information right now. Please try again later.' });
+    }
+    await mail({ to: clean.email, ...templates.leadConfirmation({ name: clean.name, type: clean.type }) });
+    if (notifyEmail) await mail({ to: notifyEmail, replyTo: clean.email, ...templates.leadAlert({ submission: clean }) });
+    return sendJson(res, 201, { message: 'Thanks for reaching out.' });
+  }
+
+  async function serveFile(req, res, file, status = 200) {
+    const content = await fs.readFile(file);
+    const ext = path.extname(file);
+    res.writeHead(status, { ...headers, 'Content-Type': types[ext] || 'application/octet-stream', 'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=86400' });
+    res.end(req.method === 'HEAD' ? undefined : content);
+  }
+
+  const server = http.createServer(async (req, res) => {
+    for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
+    try {
+      let pathname;
+      try { pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { return sendJson(res, 400, { error: 'Bad request.' }); }
+      if (pathname === '/api/submissions') {
+        if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' });
+        return await submit(req, res);
+      }
+      if (await api.handle(req, res, pathname)) return;
+      if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Method not allowed.' });
+      if (pathname.includes('\0')) return sendJson(res, 400, { error: 'Bad request.' });
+      const resolved = path.join(distDir, pathname);
+      if (resolved !== distDir && !resolved.startsWith(distDir + path.sep)) return sendJson(res, 403, { error: 'Forbidden.' });
+      try {
+        const stat = await fs.stat(resolved);
+        if (stat.isDirectory()) {
+          if (!pathname.endsWith('/')) { res.writeHead(301, { ...headers, Location: pathname + '/' }); return res.end(); }
+          return await serveFile(req, res, path.join(resolved, 'index.html'));
+        }
+        return await serveFile(req, res, resolved);
+      } catch (error) {
+        if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+        return await serveFile(req, res, path.join(distDir, '404.html'), 404);
+      }
+    } catch (error) {
+      console.error('Request failed:', error);
+      if (!res.headersSent) sendJson(res, 500, { error: 'Something went wrong. Please try again later.' });
+    }
+  });
+  server.on('close', () => db.close());
+  return server;
+}
+
+if (require.main === module) {
+  const port = Number(process.env.PORT || 3000);
+  createServer().listen(port, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
+}
+module.exports = { createServer };
