@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Portal | Budget Bath Solutions</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/vendor/bootstrap.min.css"><link rel="stylesheet" href="/admin.css">
+</head><body class="admin-body">
+<div id="admin-app" class="admin-shell" hidden>
+  <aside class="admin-side offcanvas-lg offcanvas-start" tabindex="-1" id="side" aria-label="Admin navigation">
+    <div class="offcanvas-header d-lg-none"><span class="brand">Budget Bath <b>Admin</b></span><button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" data-bs-target="#side" aria-label="Close"></button></div>
+    <div class="offcanvas-body flex-column">
+      <a class="brand d-none d-lg-block" href="#dashboard">Budget Bath <b>Admin</b></a>
+      <nav id="admin-nav" class="nav flex-column gap-1 mt-lg-4" aria-label="Sections"></nav>
+      <div class="mt-auto pt-4 small side-foot"><a href="/" target="_blank" rel="noopener">View website &#8599;</a><br><button type="button" class="btn btn-link p-0" id="logout">Sign out</button></div>
+    </div>
+  </aside>
+  <div class="admin-main">
+    <header class="admin-top"><button class="btn btn-light d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#side" aria-controls="side" aria-label="Open menu">&#9776;</button><h1 id="admin-title" class="h4 mb-0">Dashboard</h1><span class="ms-auto small text-muted" id="admin-user"></span></header>
+    <main id="view" class="admin-view" tabindex="-1" aria-live="polite"></main>
+  </div>
+</div>
+<div id="admin-login" class="login-wrap" hidden>
+  <form class="login-card" id="login-form" novalidate>
+    <h1 class="h3">Admin sign in</h1><p class="text-muted">Staff accounts only.</p>
+    <label class="form-label" for="lg-email">Email</label><input class="form-control mb-3" id="lg-email" type="email" autocomplete="email" required>
+    <label class="form-label" for="lg-pass">Password</label><input class="form-control mb-3" id="lg-pass" type="password" autocomplete="current-password" required>
+    <button class="btn btn-primary w-100" type="submit">Sign in</button><div class="form-status mt-3 text-danger" role="status" aria-live="polite"></div>
+  </form>
+</div>
+<noscript><p class="p-4">The admin portal needs JavaScript.</p></noscript>
+<script src="/vendor/bootstrap.bundle.min.js" defer></script><script src="/admin/admin.js" defer></script>
+</body></html>

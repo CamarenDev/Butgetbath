@@ -25,7 +25,7 @@ test('serves SEO essentials, legal pages and 404s', async () => {
   assert.match(home, /application\/ld\+json/);
   assert.match(await (await fetch(base + '/sitemap.xml')).text(), /service-areas\/kane-county/);
   assert.doesNotMatch(await (await fetch(base + '/sitemap.xml')).text(), /\/account\//);
-  for (const p of ['/privacy/', '/terms/', '/accessibility/', '/work-with-us/', '/contact/', '/account/', '/account/login/', '/account/register/', '/account/new/']) assert.strictEqual((await fetch(base + p)).status, 200, p);
+  for (const p of ['/privacy/', '/terms/', '/accessibility/', '/work-with-us/', '/contact/', '/account/', '/account/login/', '/account/register/', '/account/new/', '/gallery/']) assert.strictEqual((await fetch(base + p)).status, 200, p);
   assert.match(await (await fetch(base + '/account/login/')).text(), /noindex/);
   assert.strictEqual((await fetch(base + '/nope/')).status, 404);
   assert.strictEqual((await fetch(base + '/%2e%2e/package.json')).status, 404);
@@ -201,4 +201,68 @@ test('tickets: threaded messages with captioned photos, staff replies, notificat
     assert.strictEqual(mails.length, 0);
     assert.strictEqual((await call(`/api/requests/${id}/status`, { status: 'closed' }, cust)).status, 200);
   } finally { srv.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('admin portal API: access control, placeholders, uploads, review moderation, forum and contacts', async () => {
+  // Public pages and static forum articles
+  assert.match(await (await fetch(base + '/forum/toilet-overflowing-what-to-do-right-now-step-by-step/')).text(), /"@type":"Article"/);
+  assert.match(await (await fetch(base + '/admin/')).text(), /noindex/);
+  assert.doesNotMatch(await (await fetch(base + '/sitemap.xml')).text(), /\/admin\//);
+
+  // Admin routes need an admin session
+  for (const p of ['/api/admin/stats', '/api/admin/media', '/api/admin/contacts']) assert.strictEqual((await fetch(base + p)).status, 401);
+  await post('/api/auth/register', { name: 'Casey', email: 'portal-casey@example.test', phone: '', password: 'correct horse battery', consent: true });
+  await post('/api/auth/verify', { token: tokenFrom(sent.at(-1), 'verify') });
+  const user = (await post('/api/auth/login', { email: 'portal-casey@example.test', password: 'correct horse battery' })).headers.get('set-cookie').split(';')[0];
+  assert.strictEqual((await fetch(base + '/api/admin/stats', { headers: { Cookie: user } })).status, 403);
+
+  await post('/api/auth/register', { name: 'Owner', email: 'owner@example.test', phone: '', password: 'correct horse battery', consent: true }).catch(() => {});
+  const login = await post('/api/auth/login', { email: 'owner@example.test', password: 'correct horse battery' });
+  let admin;
+  if (login.status === 200) admin = login.headers.get('set-cookie').split(';')[0];
+  else { await post('/api/auth/verify', { token: tokenFrom(sent.at(-1), 'verify') }); admin = (await post('/api/auth/login', { email: 'owner@example.test', password: 'correct horse battery' })).headers.get('set-cookie').split(';')[0]; }
+  const get = async p => (await fetch(base + p, { headers: { Cookie: admin } })).json();
+
+  // Placeholder, then upload replaces it, then reset restores it
+  const ph = await fetch(base + '/media/community-banner');
+  assert.match(ph.headers.get('content-type'), /svg/);
+  const slots = (await get('/api/admin/media')).slots;
+  assert.ok(slots.find(s => s.slot === 'community-banner' && !s.custom));
+  assert.strictEqual((await fetch(base + '/api/admin/media/community-banner', { method: 'POST', headers: { Cookie: admin, 'Content-Type': 'image/png', Origin: base }, body: Buffer.from('not an image') })).status, 415);
+  assert.strictEqual((await fetch(base + '/api/admin/media/community-banner', { method: 'POST', headers: { Cookie: admin, 'Content-Type': 'image/png', Origin: base }, body: png })).status, 201);
+  assert.match((await fetch(base + '/media/community-banner')).headers.get('content-type'), /png/);
+  assert.strictEqual((await fetch(base + '/api/admin/media/community-banner', { method: 'DELETE', headers: { Cookie: admin, Origin: base } })).status, 200);
+  assert.match((await fetch(base + '/media/community-banner')).headers.get('content-type'), /svg/);
+
+  // Reviews are held for moderation, then published by the admin
+  assert.strictEqual((await post('/api/reviews', { name: 'Dana', town: 'Geneva', rating: 5, text: 'Great tile work on our shower.' })).status, 201);
+  const pending = (await get('/api/admin/reviews')).reviews.find(r => r.name === 'Dana');
+  assert.strictEqual(pending.status, 'pending');
+  assert.ok(!(await (await fetch(base + '/api/public/portfolio')).text()).includes('Great tile work'));
+  assert.strictEqual((await post(`/api/admin/reviews/${pending.id}`, { status: 'published' }, admin)).status, 200);
+  assert.ok((await (await fetch(base + '/api/public/portfolio')).text()).includes('Great tile work'));
+
+  // Forum: starter topics exist, the Team can post, hiding removes from public list
+  const topics = await (await fetch(base + '/api/forum/threads')).json();
+  assert.ok(topics.total > 0);
+  const created = await post('/api/forum/threads', { title: 'Welcome from the team', body: 'A short test post.', category: (await get('/api/admin/forum')).categories[0].slug, asTeam: true }, admin);
+  assert.strictEqual(created.status, 201);
+  const { id: tid } = await created.json();
+  assert.strictEqual((await post(`/api/admin/forum/threads/${tid}`, { status: 'hidden' }, admin)).status, 200);
+  assert.strictEqual((await fetch(`${base}/api/forum/threads/${tid}`)).status, 404);
+
+  // Contacts and stats
+  await post('/api/submissions', { type: 'project', name: 'Lee', email: 'lee@example.test', phone: '', location: 'Kane County', interest: 'Tile Installation', message: 'Hello', consent: true });
+  const contacts = (await get('/api/admin/contacts')).contacts;
+  const lee = contacts.find(c => c.email === 'lee@example.test');
+  assert.strictEqual((await post(`/api/admin/contacts/${lee.id}`, { status: 'contacted', notes: 'Called back' }, admin)).status, 200);
+  assert.strictEqual((await get('/api/admin/stats')).series.length, 30);
+
+  // Visit tracking is off until the admin enables it
+  assert.ok([200, 204].includes((await post('/api/track', { path: '/gallery/' })).status));
+  assert.strictEqual((await get('/api/admin/stats')).month.views, 0);
+  await post('/api/admin/settings', { banner: 'Spring special', bannerOn: true, analyticsOn: true }, admin);
+  await post('/api/track', { path: '/gallery/' });
+  assert.strictEqual((await get('/api/admin/stats')).month.views, 1);
+  assert.strictEqual((await (await fetch(base + '/api/public/site')).json()).banner, 'Spring special');
 });

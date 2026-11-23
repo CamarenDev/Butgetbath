@@ -7,7 +7,7 @@ const { createTemplates } = require('./lib/emails');
 const { createApi } = require('./lib/api');
 
 const distDir = path.join(__dirname, 'dist');
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.xml': 'application/xml; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.xml': 'application/xml; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 const WINDOW = 10 * 60 * 1000;
 
 const headers = {
@@ -86,6 +86,7 @@ function createServer({
       console.error('Unable to save submission:', error);
       return sendJson(res, 500, { error: 'We could not send your information right now. Please try again later.' });
     }
+    db.prepare('INSERT INTO contacts (type, name, email, phone, location, interest, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(clean.type, clean.name, clean.email, clean.phone, clean.location, clean.interest, clean.message, clean.receivedAt);
     await mail({ to: clean.email, ...templates.leadConfirmation({ name: clean.name, type: clean.type }) });
     if (notifyEmail) await mail({ to: notifyEmail, replyTo: clean.email, ...templates.leadAlert({ submission: clean }) });
     return sendJson(res, 201, { message: 'Thanks for reaching out.' });
@@ -108,6 +109,7 @@ function createServer({
         return await submit(req, res);
       }
       if (await api.handle(req, res, pathname)) return;
+      if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/media/') && await api.media(req, res, pathname)) return;
       if (req.method !== 'GET' && req.method !== 'HEAD') return sendJson(res, 405, { error: 'Method not allowed.' });
       if (pathname.includes('\0')) return sendJson(res, 400, { error: 'Bad request.' });
       const resolved = path.join(distDir, pathname);

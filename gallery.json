@@ -1,0 +1,16 @@
+{
+  "_readme": "Add real jobs/reviews here. Put photos in assets/gallery/ and reference them as /gallery/<file>. Set \"video\" to an .mp4 in assets/gallery/ to show a video. Entries with \"sample\": true show a 'Sample' badge and are excluded from search-engine review markup; delete them once you add real ones.",
+  "projects": [
+    { "title": "Primary Bath Refresh", "category": "Bathroom Remodeling", "county": "DuPage County", "image": "/bathroom.svg", "alt": "Modern bathroom with arched mirror and freestanding tub", "summary": "New vanity, arched mirror and freestanding tub.", "sample": true },
+    { "title": "Floor-to-Ceiling Tile Shower", "category": "Tile Installation", "county": "Kane County", "image": "/bathroom.svg", "alt": "Tiled shower wall", "summary": "Large-format porcelain tile with a niche.", "sample": true },
+    { "title": "Tub-to-Shower Conversion", "category": "Shower & Tub", "county": "Kendall County", "image": "/bathroom.svg", "alt": "Walk-in shower conversion", "summary": "Safer, easier walk-in shower.", "sample": true },
+    { "title": "Hall Bath Makeover", "category": "Bathroom Remodeling", "county": "DeKalb County", "image": "/bathroom.svg", "alt": "Updated hall bathroom", "summary": "Fresh finishes on a tight budget.", "sample": true },
+    { "title": "Basement Bath Build", "category": "Other Remodeling", "county": "Kane County", "image": "/bathroom.svg", "alt": "New basement bathroom", "summary": "A brand-new bathroom added downstairs.", "sample": true },
+    { "title": "Heated Tile Floor", "category": "Tile Installation", "county": "DuPage County", "image": "/bathroom.svg", "alt": "Patterned tile floor", "summary": "Patterned floor tile with in-floor heat.", "sample": true }
+  ],
+  "reviews": [
+    { "name": "Sample Customer", "town": "Naperville, IL", "rating": 5, "text": "Replace this sample with a real review from a past customer.", "sample": true },
+    { "name": "Sample Customer", "town": "Aurora, IL", "rating": 5, "text": "Replace this sample with a real review from a past customer.", "sample": true },
+    { "name": "Sample Customer", "town": "Yorkville, IL", "rating": 5, "text": "Replace this sample with a real review from a past customer.", "sample": true }
+  ]
+}
