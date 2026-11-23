@@ -86,6 +86,37 @@ const guides = [
       ['Waterproofing is not optional', 'A shower is only as good as its waterproofing and slope. This is where experience counts.'],
       ['Get a plan for your bathroom', 'Every bathroom is different. Call us for a free estimate and we will give you straight answers for your space.']
     ]
+  },
+  {
+    slug: 'bathroom-remodel-cost-2026', title: 'How Much Does a Bathroom Remodel Cost in 2026?', short: 'Planning ranges by project type and room size, plus where the money goes.', desc: 'What a bathroom remodel costs in 2026: national averages from Angi and HomeGuide, cost by room size and a typical budget breakdown for Illinois homeowners.',
+    body: [
+      ['The short answer', 'Angi\'s 2026 data, based on more than 28,000 verified projects, puts the national average bathroom remodel at about $12,200, with most projects between roughly $6,650 and $17,700. Remodeling Magazine\'s Cost vs. Value report prices a fuller midrange remodel, with a new tub or shower, vanity, toilet and tile, closer to $26,000. Scope explains the gap.'],
+      ['Cost by room', 'Planning figures: a half bath of about 30 sq ft runs roughly $1,500 to $15,000, a guest bath of about 80 sq ft roughly $5,600 to $20,000, and a primary bath of about 120 sq ft roughly $8,400 to $30,000. Professional remodels commonly run about $70 to $250 per square foot.'],
+      ['Where the money goes', 'A budget breakdown commonly cited from NKBA research: cabinetry and hardware about 18%, fixtures 17%, faucets and plumbing 16%, flooring 11%, countertops 9%, lighting and ventilation 7%, walls and ceilings 7%, and the remainder in doors, windows, design, disposal and permits.'],
+      ['Plan a contingency', 'Set aside 10% to 20% for surprises, especially in older homes where plumbing or subfloor problems appear once walls and floors are open.'],
+      ['Get a number for your home', 'National averages are a starting point. Costs in the Chicago suburbs often run above them, and your layout, finishes and what is behind the walls decide the real price. Request a free estimate for a written scope.']
+    ]
+  },
+  {
+    slug: 'bathroom-remodel-home-value', title: 'Does a Bathroom Remodel Add Home Value?', short: 'What midrange and upscale remodels return at resale, and local home values.', desc: 'How much value a bathroom remodel adds at resale, with Cost vs. Value benchmarks and 2026 Illinois home price context.',
+    body: [
+      ['Midrange wins on return', 'In Remodeling Magazine\'s Cost vs. Value report, a midrange bathroom remodel (around $26,000) recoups roughly 74% to 80% of its cost at resale, while an upscale remodel recoups roughly 40% to 50%. A survey of Realtors in the NAR and NARI Remodeling Impact Report estimated about 50% for a typical bathroom renovation.'],
+      ['Do not over-improve', 'Buyers and appraisers limit what they will pay for a bathroom relative to the rest of the home. Aim your budget at what comparable homes in your neighborhood offer.'],
+      ['Illinois context', 'Illinois Realtors reported a Chicago-area median sale price around $400,000 in spring 2026, up roughly 5% from a year earlier, and county-level data put DuPage County near $478,000 in mid-2026. Kane, Kendall and DeKalb counties generally sit lower. Ask a local Realtor for recent sales near you.'],
+      ['Value is also daily life', 'If you are staying for years, comfort, safety and easy upkeep are real returns that do not show up in a resale formula.'],
+      ['Next step', 'Tell us your goals and timeline and we will help you choose a scope that fits your home.']
+    ]
+  },
+  {
+    slug: 'bathroom-design-trends-2026', title: 'Bathroom Design Trends for 2026', short: 'What the NKBA 2026 Bath Trends Report says designers expect.', desc: 'Highlights from the NKBA 2026 Bath Trends Report: light neutrals, large-format tile, matte finishes, bigger showers, layered lighting and aging in place.',
+    body: [
+      ['Light neutrals lead', 'In NKBA\'s 2026 report, 96% of respondents named neutrals the most popular bath colors, led by off-white (58%), light brown or tan (54%) and white (40%).'],
+      ['Durable, large-format floors', '80% expect large-format flooring to be most popular over the next three years, and 91% say durability and low upkeep are the top flooring consideration. Patterned and textured tile is gaining ground, according to 66%.'],
+      ['Matte over polished', 'Matte (54%), brushed (51%) and satin (46%) faucet finishes are more popular than polished (39%).'],
+      ['Bigger showers, wellness features', '55% say a larger shower matters more than a tub, with steam, seating, shelving and spa features. 51% expect smart toilets to rise, and 77% expect a hotel or resort feel.'],
+      ['Layered lighting and aging in place', '88% list natural light as a top priority, 80% include nighttime lighting and 47% favor mirrors with integrated lighting. 32% call aging in place mainstream and 48% say it is on its way.'],
+      ['Make it work for your home', 'Trends are inspiration, not a rulebook. We will help you pick what fits your layout, budget and lifestyle.']
+    ]
   }
 ];
 

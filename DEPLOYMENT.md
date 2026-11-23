@@ -13,7 +13,7 @@ npm test
 - `RESEND_API_KEY` – Resend API key
 - `EMAIL_FROM` – e.g. `Budget Bath Solutions <hello@yourdomain.com>`; the domain must be verified in Resend (`onboarding@resend.dev` only delivers to the Resend account owner)
 - `NOTIFY_EMAIL` – where new leads and customer requests are sent
-- `ADMIN_EMAILS` – comma-separated verified accounts allowed to view all requests/photos at `/account/admin/`
+- `ADMIN_EMAILS` – comma-separated verified accounts allowed to use the admin portal at `/admin/` (contacts, support, forum, reviews, projects, images, visitors, users, settings) and `/account/admin/`
 - `SITE_URL` – public URL (https enables Secure cookies)
 - `DATA_DIR` – SQLite DB, uploads and lead log (default `./data`); back this up
 - `TRUST_PROXY=1` when behind a reverse proxy
