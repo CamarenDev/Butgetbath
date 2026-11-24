@@ -53,7 +53,7 @@
   const tile = (cls, n, l) => el('div', { class: 'col-6 col-lg-3' }, el('div', { class: `tile ${cls}` }, el('div', { class: 'n', text: String(n) }), el('div', { class: 'l', text: l })));
   function chart(series) {
     const W = 640, H = 220, P = 28, max = Math.max(4, ...series.map(s => s.views));
-    const x = i => P + i * (W - 2 * P) / (series.length - 1), y = v => H - P - v / max * (H - 2 * P);
+    const x = i => P + i * (W - 2 * P) / Math.max(1, series.length - 1), y = v => H - P - v / max * (H - 2 * P);
     const pts = k => series.map((s, i) => `${x(i).toFixed(1)},${y(s[k]).toFixed(1)}`).join(' ');
     const svg = sv('svg', { class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Page views and visitors for the last 30 days' });
     for (let i = 0; i <= 4; i++) { const v = Math.round(max * i / 4); svg.append(sv('line', { class: 'grid', x1: P, x2: W - P, y1: y(v), y2: y(v) }), sv('text', { x: 2, y: y(v) + 4 }, String(v))); }
@@ -74,7 +74,7 @@
     view.replaceChildren(
       el('div', { class: 'row g-3 mb-4' }, tile('t1', c.newContacts, 'New contacts'), tile('t2', c.openTickets, 'Open support requests'), tile('t3', c.pendingReviews, 'Reviews to approve'), tile('t4', c.placeholders, 'Placeholder images to replace'),
         tile('t5', c.threads, 'Forum topics'), tile('t6', c.users, 'Registered users'), tile('t1', c.reviews, 'Published reviews'), tile('t2', c.projects, 'Projects shown')),
-      panel('Visits (last 30 days)', chart(s.series), el('p', { class: 'small text-muted mb-0 mt-2', text: 'Purple: page views. Pink: unique visitors per day. Statistics only record visits while visit statistics are turned on in Settings.' })),
+      panel('Visits (last 30 days)', chart(s.series), el('p', { class: 'mb-1 mt-2 fw-semibold', text: `${s.series.reduce((a, d) => a + d.views, 0)} views, ${s.series.reduce((a, d) => a + d.visitors, 0)} visitor-days, ${Math.round(s.series.reduce((a, d) => a + d.views, 0) / Math.max(1, s.series.length))} views per day on average.` }), el('p', { class: 'small text-muted mb-0', text: 'Purple: page views. Pink: unique visitors per day. Statistics only record visits while visit statistics are turned on in Settings.' })),
       el('div', { class: 'row g-3' }, el('div', { class: 'col-md-6' }, panel('To do', el('ul', { class: 'mb-0' },
         el('li', {}, el('a', { href: '#contacts', text: `${c.newContacts} new contact(s)` })), el('li', {}, el('a', { href: '#reviews', text: `${c.pendingReviews} review(s) waiting` })),
         el('li', {}, el('a', { href: '#images', text: `${c.placeholders} placeholder image(s)` })), el('li', {}, el('a', { href: '#support', text: `${c.openTickets} open support request(s)` }))))),
