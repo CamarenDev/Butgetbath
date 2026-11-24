@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const { openDb } = require('./lib/db');
 const { createMailer, createReceiver } = require('./lib/mailer');
 const { createTemplates } = require('./lib/emails');
+const { createGoogleCalendar } = require('./lib/gcal');
 const { createApi } = require('./lib/api');
 
 const distDir = path.join(__dirname, 'dist');
@@ -27,11 +28,12 @@ function createServer({
   replyDomain = process.env.REPLY_DOMAIN || '',
   webhookSecret = process.env.RESEND_WEBHOOK_SECRET || '',
   receiver = process.env.RESEND_API_KEY ? createReceiver() : null,
+  gcal = createGoogleCalendar(),
   trustProxy = process.env.TRUST_PROXY === '1'
 } = {}) {
   const db = openDb(dataDir);
   const templates = createTemplates(siteUrl);
-  const api = createApi({ db, dataDir, mailer, templates, siteUrl, notifyEmail, adminEmails, replyDomain, webhookSecret, receiver, trustProxy, secureCookies: siteUrl.startsWith('https://') });
+  const api = createApi({ db, dataDir, mailer, templates, siteUrl, notifyEmail, adminEmails, replyDomain, webhookSecret, receiver, gcal, trustProxy, secureCookies: siteUrl.startsWith('https://') });
   const recent = new Map();
 
   const sendJson = (res, status, body) => {

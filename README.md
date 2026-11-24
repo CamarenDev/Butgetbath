@@ -11,3 +11,10 @@ npm test
 ```
 
 Configuration, Resend setup and deployment notes are in [DEPLOYMENT.md](DEPLOYMENT.md). Copy `.env.example` to `.env` and never commit it.
+
+## Appointments
+
+Staff (`ADMIN_EMAILS`) schedule, reschedule and cancel appointments from a customer's request page. Each change emails the customer a confirmation with an `.ics` invite (`METHOD:REQUEST`/`CANCEL`), plus "Add to Google Calendar" and Apple/Outlook links. Customers see upcoming appointments on their dashboard and can cancel (staff are emailed).
+
+- **iCalendar**: per-appointment download at `/api/appointments/:id/ics`, and a private subscription feed for staff (shown on the staff requests page) that works with Apple Calendar, Outlook and Google Calendar "From URL".
+- **Google Calendar sync** (optional): set `GOOGLE_CALENDAR_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` (see `.env.example`). Without them, only the links, `.ics` files and feed are used.

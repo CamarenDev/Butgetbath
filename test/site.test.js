@@ -266,3 +266,67 @@ test('admin portal API: access control, placeholders, uploads, review moderation
   assert.strictEqual((await get('/api/admin/stats')).month.views, 1);
   assert.strictEqual((await (await fetch(base + '/api/public/site')).json()).banner, 'Spring special');
 });
+
+test('appointments: staff schedule, customer gets confirmation with .ics, calendar feed, reschedule and cancel', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-a-'));
+  const mails = [];
+  const pushed = [];
+  const gcal = { enabled: true, upsert: async e => { pushed.push(['upsert', e.appointment.status]); return 'g1'; }, remove: async id => { pushed.push(['remove', id]); } };
+  const srv = createServer({ dataDir: dir, siteUrl: 'https://example.test', notifyEmail: 'owner@example.test', adminEmails: ['owner@example.test'], mailer: async m => { mails.push(m); }, gcal });
+  await new Promise(resolve => srv.listen(0, resolve));
+  const url = `http://localhost:${srv.address().port}`;
+  const call = (p, body, cookie) => fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie && { Cookie: cookie }) }, body: JSON.stringify(body) });
+  const get = (p, cookie) => fetch(url + p, { headers: cookie ? { Cookie: cookie } : {} });
+  const tok = m => new URL(m.text.match(/https?:\/\/\S+/g).find(u => u.includes('verify'))).searchParams.get('token');
+  const account = async (name, email) => {
+    await call('/api/auth/register', { name, email, phone: '', password: 'correct horse battery', consent: true });
+    await call('/api/auth/verify', { token: tok(mails.at(-1)) });
+    return (await call('/api/auth/login', { email, password: 'correct horse battery' })).headers.get('set-cookie').split(';')[0];
+  };
+  try {
+    const cust = await account('Casey', 'casey@example.test');
+    const other = await account('Dana', 'dana@example.test');
+    const owner = await account('Owner', 'owner@example.test');
+    const { id } = await (await call('/api/requests', { title: 'Primary bath', projectType: 'Bathroom Remodeling', location: 'Kane County', description: 'Replace tub with walk-in shower.' }, cust)).json();
+    await call(`/api/requests/${id}/submit`, {}, cust);
+    const startsAt = new Date(Date.now() + 3 * 86400000).toISOString();
+    const details = { startsAt, durationMin: 60, kind: 'in_home', location: '12 Oak St, Geneva, IL', notes: 'Please clear the vanity.' };
+
+    assert.strictEqual((await call(`/api/requests/${id}/appointments`, details, cust)).status, 403);
+    assert.strictEqual((await call(`/api/requests/${id}/appointments`, { ...details, startsAt: '2001-01-01T00:00:00Z' }, owner)).status, 400);
+    mails.length = 0;
+    const created = await call(`/api/requests/${id}/appointments`, details, owner);
+    assert.strictEqual(created.status, 201);
+    const appt = (await created.json()).appointment;
+    assert.deepStrictEqual(mails.map(m => m.to), ['casey@example.test']);
+    const ics = Buffer.from(mails[0].attachments[0].content, 'base64').toString().replace(/\r\n /g, '');
+    assert.match(ics, /METHOD:REQUEST/);
+    assert.match(ics, /ATTENDEE;[^\r\n]*mailto:casey@example\.test/);
+    assert.match(mails[0].text, /calendar\.google\.com\/calendar\/render/);
+    assert.deepStrictEqual(pushed.at(-1), ['upsert', 'scheduled']);
+
+    assert.strictEqual((await get(`/api/appointments/${appt.id}/ics`, other)).status, 404);
+    const download = await get(`/api/appointments/${appt.id}/ics`, cust);
+    assert.match(download.headers.get('content-type'), /text\/calendar/);
+    assert.match(await download.text(), /BEGIN:VEVENT[\s\S]*SUMMARY:In-home estimate/);
+    assert.strictEqual((await (await get('/api/appointments', cust)).json()).appointments.length, 1);
+    assert.strictEqual((await (await get('/api/appointments', other)).json()).appointments.length, 0);
+
+    const { feedUrl } = await (await get('/api/calendar/info', owner)).json();
+    assert.strictEqual((await get('/api/calendar/info', cust)).status, 403);
+    assert.strictEqual((await fetch(feedUrl.replace('example.test', `localhost:${srv.address().port}`).replace('https', 'http'))).status, 200);
+    assert.strictEqual((await get('/api/calendar/feed.ics?token=wrong')).status, 404);
+
+    mails.length = 0;
+    assert.strictEqual((await call(`/api/appointments/${appt.id}/reschedule`, details, cust)).status, 403);
+    assert.strictEqual((await call(`/api/appointments/${appt.id}/reschedule`, { ...details, durationMin: 90 }, owner)).status, 200);
+    assert.match(Buffer.from(mails[0].attachments[0].content, 'base64').toString(), /SEQUENCE:1/);
+
+    mails.length = 0;
+    assert.strictEqual((await call(`/api/appointments/${appt.id}/cancel`, {}, cust)).status, 200);
+    assert.deepStrictEqual(mails.map(m => m.to).sort(), ['casey@example.test', 'owner@example.test']);
+    assert.match(Buffer.from(mails.find(m => m.to === 'casey@example.test').attachments[0].content, 'base64').toString(), /METHOD:CANCEL/);
+    assert.deepStrictEqual(pushed.at(-1), ['remove', 'g1']);
+    assert.strictEqual((await call(`/api/appointments/${appt.id}/cancel`, {}, cust)).status, 400);
+  } finally { srv.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
