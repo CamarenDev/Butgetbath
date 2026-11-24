@@ -38,7 +38,7 @@ test('GPS clock: consent, location required, job-site rules, automatic clock-out
     await call('admin', 'POST', '/api/auth/register', { name: 'Admin', email: 'admin@example.com', password: 'correct-horse-1', consent: true });
     await call('admin', 'POST', '/api/auth/verify', { token: token('admin@example.com') });
     await call('admin', 'POST', '/api/auth/login', { email: 'admin@example.com', password: 'correct-horse-1' });
-    const empId = (await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', roleTitle: 'Tile setter', rate: 25 })).data.id;
+    const empId = (await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', skipOnboarding: true, roleTitle: 'Tile setter', rate: 25 })).data.id;
     await call('hank', 'POST', '/api/auth/reset', { token: token('hank@example.com'), password: 'correct-horse-2' });
     await call('hank', 'POST', '/api/auth/login', { email: 'hank@example.com', password: 'correct-horse-2' });
     const jobId = (await call('admin', 'POST', '/api/admin/jobs', { title: 'Tile shower', address: '1 Main' })).data.id;

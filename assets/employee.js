@@ -49,7 +49,7 @@
 
   let me = null;
   let tab = location.hash.slice(1) || 'clock';
-  const TABS = [['clock', 'Clock'], ['jobs', 'Jobs'], ['hours', 'Hours'], ['pay', 'Pay'], ['contracts', 'Contracts'], ['requests', 'Requests'], ['kb', 'Knowledge base'], ['documents', 'Documents']];
+  const TABS = [['clock', 'Clock'], ['jobs', 'Jobs'], ['hours', 'Hours'], ['pay', 'Pay'], ['contracts', 'Contracts'], ['requests', 'Requests'], ['kb', 'Knowledge base'], ['documents', 'Documents'], ['experience', 'My experience']];
 
   // ---------- Sections
   async function jobs(box) {
@@ -474,11 +474,12 @@
       el('p', { class: 'small text-muted mt-2 mb-0', text: 'Each shift is added to your hours for approval when you clock out.' })));
   }
 
-  const SECTIONS = { clock, jobs, hours, pay, contracts, requests, kb, documents };
+  const SECTIONS = { clock, jobs, hours, pay, contracts, requests, kb, documents, experience: box => window.bbsOnboarding.experienceTab(box) };
 
   async function render() {
     const summary = await api('/api/employee/me');
     me = summary;
+    if (summary.onboarding && window.bbsOnboarding) { await window.bbsOnboarding.mount(root, { done: boot, signOut: async () => { await send('/api/auth/logout', {}); await boot(); } }); return; }
     await loadClock().catch(() => {});
     const c = summary.counts, badgeFor = { jobs: c.openJobs, contracts: c.pendingContracts, requests: c.pendingRequests };
     if (!SECTIONS[tab]) tab = 'clock';

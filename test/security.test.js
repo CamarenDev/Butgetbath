@@ -28,7 +28,7 @@ test('security: lockout, CSRF, fake-GPS jumps, device binding and shared devices
     await call('admin', 'POST', '/api/auth/verify', { token: token('admin@example.com') });
     await call('admin', 'POST', '/api/auth/login', { email: 'admin@example.com', password: 'correct-horse-1' });
     for (const [name, email] of [['Amy A', 'amy@example.com'], ['Bob B', 'bob@example.com']]) {
-      await call('admin', 'POST', '/api/admin/employees', { name, email, roleTitle: 'Tile setter', rate: 20 });
+      await call('admin', 'POST', '/api/admin/employees', { name, email, skipOnboarding: true, roleTitle: 'Tile setter', rate: 20 });
       await call(email, 'POST', '/api/auth/reset', { token: token(email), password: 'correct-horse-2' });
       await call(email, 'POST', '/api/auth/login', { email, password: 'correct-horse-2' });
     }

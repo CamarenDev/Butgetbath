@@ -94,3 +94,5 @@ Full scan of every source file for hardcoded, time-sensitive or externally sourc
 - [ ] Add `sameAs` links (Google Business Profile, Facebook, Yelp) to the business schema once those profiles exist.
 
 - Skills test question banks (`lib/skill-tests.js`): have a lead tradesperson in each trade review the questions and answers.
+- Onboarding and training (`lib/training.js`, `lib/onboarding.js`): the lesson text, quiz answers and the starter employment agreement are general templates. Have the owner, a lead tradesperson and an attorney review them (the agreement, at-will terms, location consent and state wage rules). The W-4 and I-9 screens only collect answers to prepare the official forms; an accountant or attorney should confirm the process, I-9 document inspection within 3 business days, and record retention.
+

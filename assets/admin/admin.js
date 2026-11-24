@@ -37,13 +37,13 @@
   const badge = (text, cls = 'secondary') => el('span', { class: `badge text-bg-${cls}`, text });
 
   const SECTIONS = [
-    ['dashboard', 'Dashboard', '\u25A6'], ['customers', 'Customers', '\u2616'], ['employees', 'Employees', '\u2692'], ['live', 'Live now', '\u25C9'], ['toolphotos', 'Tool photos', '\u2692'], ['location', 'Location', '\u25CE'], ['jobs', 'Jobs', '\u2302'], ['estimator', 'Estimator', '\u2630'], ['company', 'Company', '\u25A4'], ['accounting', 'Accounting', '\u0024'], ['zoho', 'Zoho Books', '\u21C5'], ['seo', 'SEO files', '\u2315'], ['security', 'Security log', '\u26E8'], ['holidays', 'Holiday sales', '\u2744'], ['hr', 'HR', '\u270E'], ['knowledge', 'Knowledge base', '\u2139'], ['contacts', 'Contacts', '\u2709'], ['support', 'Support', '\u260E'], ['forum', 'Forum', '\u2756'],
+    ['dashboard', 'Dashboard', '\u25A6'], ['customers', 'Customers', '\u2616'], ['employees', 'Employees', '\u2692'], ['live', 'Live now', '\u25C9'], ['onboarding', 'Onboarding', '\u2713'], ['toolphotos', 'Tool photos', '\u2692'], ['location', 'Location', '\u25CE'], ['jobs', 'Jobs', '\u2302'], ['estimator', 'Estimator', '\u2630'], ['company', 'Company', '\u25A4'], ['accounting', 'Accounting', '\u0024'], ['zoho', 'Zoho Books', '\u21C5'], ['seo', 'SEO files', '\u2315'], ['security', 'Security log', '\u26E8'], ['holidays', 'Holiday sales', '\u2744'], ['hr', 'HR', '\u270E'], ['knowledge', 'Knowledge base', '\u2139'], ['contacts', 'Contacts', '\u2709'], ['support', 'Support', '\u260E'], ['forum', 'Forum', '\u2756'],
     ['reviews', 'Reviews', '\u2605'], ['projects', 'Projects', '\u25A3'], ['images', 'Images', '\u25A8'], ['visitors', 'Visitors', '\u2197'], ['users', 'Users', '\u263A'], ['settings', 'Settings', '\u2699']
   ];
   let badges = {};
   const GROUPS = [
     ['Overview', ['dashboard', 'company', 'visitors']],
-    ['Work', ['customers', 'jobs', 'estimator', 'employees', 'live', 'toolphotos', 'location']],
+    ['Work', ['customers', 'jobs', 'estimator', 'employees', 'onboarding', 'live', 'toolphotos', 'location']],
     ['Money', ['accounting', 'zoho', 'holidays']],
     ['Inbox', ['contacts', 'support', 'hr']],
     ['Website', ['projects', 'images', 'reviews', 'forum', 'knowledge', 'seo']],
@@ -356,10 +356,10 @@
 
   const employeeList = async () => {
     const { employees: list } = await api('/api/admin/employees');
-    const f = { name: input('Full name', { maxlength: 120 }), email: input('Email', { type: 'email', maxlength: 200 }), phone: input('Phone', { maxlength: 40 }), roleTitle: input('Role', { maxlength: 100 }), rate: input('Hourly rate ($)', { type: 'number', min: '0', step: '0.01' }), hiredOn: input('Hire date', { type: 'date', value: new Date().toISOString().slice(0, 10) }) };
+    const f = { name: input('Full name', { maxlength: 120 }), email: input('Email', { type: 'email', maxlength: 200 }), phone: input('Phone', { maxlength: 40 }), roleTitle: input('Role', { maxlength: 100 }), rate: input('Hourly rate ($)', { type: 'number', min: '0', step: '0.01' }), hiredOn: input('Hire date', { type: 'date', value: new Date().toISOString().slice(0, 10) }), onboarding: select('Onboarding', [['full', 'Full onboarding and training (recommended)'], ['skip', 'Skip: experienced rehire']], 'full') };
     view.replaceChildren(
-      panel('Create employee account', el('p', { class: 'small text-muted', text: 'Only you can create accounts. The employee gets an email with a link to choose a password.' }), el('div', { class: 'row' }, Object.values(f).map(x => el('div', { class: 'col-md-4' }, x.wrap))),
-        btn('Create & send invite', async () => { const r = await send('/api/admin/employees', 'POST', Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.ctl.value]))); toast('Employee created. Invite sent.'); location.hash = `#employees/${r.id}`; }, 'btn-primary')),
+      panel('Create employee account', el('p', { class: 'small text-muted', text: 'Only you can create accounts. The employee gets an email with a link to choose a password, then completes tax forms, signs the contract and goes through training before they can clock in.' }), el('div', { class: 'row' }, Object.values(f).map(x => el('div', { class: 'col-md-4' }, x.wrap))),
+        btn('Create & send invite', async () => { const r = await send('/api/admin/employees', 'POST', Object.fromEntries(Object.entries(f).map(([k, v]) => k === 'onboarding' ? ['skipOnboarding', v.ctl.value === 'skip'] : [k, v.ctl.value]))); toast('Employee created. Invite sent.'); location.hash = `#employees/${r.id}`; }, 'btn-primary')),
       panel('Employees', list.length ? tableOf(['Employee', 'Role', 'Rate', 'Status', 'Needs attention'], list.map(e => el('tr', {}, el('td', {}, el('a', { href: `#employees/${e.id}`, class: 'fw-semibold', text: e.name }), el('div', { class: 'small text-muted', text: e.email })), el('td', { text: e.roleTitle }), el('td', { text: money(e.rateCents) }), el('td', {}, sBadge(e.status)),
         el('td', { class: 'small', text: [e.pendingHours && `${e.pendingHours} hours`, e.pendingRequests && `${e.pendingRequests} requests`, e.pendingContracts && `${e.pendingContracts} unsigned contracts`].filter(Boolean).join(', ') })))) : empty('No employees yet.')));
   };
@@ -374,7 +374,7 @@
     const ct = input('Contract title', { maxlength: 150 }), cb = input('Contract text', { rows: 8, maxlength: 20000 }, 'textarea');
     const ft = input('Title', { maxlength: 200 }), fp = input('File', { type: 'file', accept: 'image/jpeg,image/png,image/webp,application/pdf,.docx,.xlsx' });
     const answer = r => { const reply = input('Reply (emailed to employee)', { rows: 2, maxlength: 2000 }, 'textarea'); return el('div', { class: 'mt-2' }, reply.wrap, el('div', { class: 'd-flex gap-2' }, ['approved', 'denied'].map(s => btn(s === 'approved' ? 'Approve' : 'Deny', async () => { await send(`/api/admin/employee-requests/${r.id}/respond`, 'POST', { status: s, response: reply.ctl.value }); await refresh(); }, s === 'approved' ? 'btn-success' : 'btn-outline-danger')))); };
-    const locBox = el('div', { class: 'mb-4' });
+    const locBox = el('div', { class: 'mb-4' }), onbBox = el('div');
     view.replaceChildren(
       el('p', {}, el('a', { href: '#employees', text: '\u2190 All employees' })),
       panel(e.name, el('p', { class: 'text-muted', text: e.email }), el('div', { class: 'row' }, Object.values(f).map(x => el('div', { class: 'col-md-6' }, x.wrap))), notes.wrap, el('div', { class: 'form-check form-switch mb-3' }, canEstimate, el('label', { class: 'form-check-label', for: 'can-estimate', text: 'Can use the bathroom estimator (sees only their own estimates, no markup or profit)' })),
@@ -393,8 +393,10 @@
           c.status === 'pending' ? btn('Void', async () => { if (confirm('Void this contract?')) { await send(`/api/admin/contracts/${c.id}/void`, 'POST'); await refresh(); } }, 'btn-outline-danger') : null)) : empty('No contracts yet.')),
       panel(`Documents (${d.files.length})`, el('div', { class: 'row g-2 align-items-end' }, el('div', { class: 'col-md-5' }, ft.wrap), el('div', { class: 'col-md-5' }, fp.wrap), el('div', { class: 'col-md-2 mb-3' }, btn('Upload', async () => { const file = fp.ctl.files[0]; if (!file) return toast('Choose a file.', 'danger'); await api(`${base}/files`, { method: 'POST', headers: { 'X-Filename': encodeURIComponent(file.name), 'X-Title': encodeURIComponent(ft.ctl.value) }, body: file }); await refresh(); }, 'btn-primary'))),
         d.files.map(x => el('div', { class: 'd-flex gap-2 border-top py-2' }, el('a', { href: `/api/admin/employee-files/${x.id}`, target: '_blank', rel: 'noopener', text: x.title || x.name }), el('span', { class: 'small text-muted', text: `${fmtSize(x.size)} \u00B7 from ${x.uploadedBy}` }), el('span', { class: 'ms-auto' }, btn('Delete', async () => { if (confirm('Delete this file?')) { await send(`/api/admin/employee-files/${x.id}/delete`, 'POST'); await refresh(); } }, 'btn-outline-danger'))))),
+      onbBox,
       el('h2', { class: 'h5 mb-3', text: 'Location & time clock' }), locBox,
       panel('Assigned jobs', d.jobs.length ? el('ul', { class: 'mb-0' }, d.jobs.map(j => el('li', {}, el('a', { href: `#jobs/${j.id}`, text: `#${j.id} ${j.title}` }), ' ', sBadge(j.status)))) : empty('Not assigned to any jobs.')));
+    onbBox.replaceChildren(await onboardingPanel(id, refresh));
     await drawLocation(locBox, `${base}/location`, {}, true);
   };
   const employees = sub(employeeList, employeeDetail);
@@ -638,6 +640,55 @@
     await draw();
     liveTimer = setInterval(() => { if (document.hidden) return; if (!location.hash.startsWith('#live')) { clearInterval(liveTimer); return; } draw().catch(() => {}); }, 20000);
     renderNav('live');
+  };
+
+
+  // ---------- Onboarding & training
+  const onboardingPanel = async (id, refresh) => {
+    const d = await api(`/api/admin/onboarding/${id}`), base = `/api/admin/onboarding/${id}`, r = d.row, S = d.summary;
+    const dl = rows => el('dl', { class: 'row mb-0 small' }, rows.filter(x => x[1]).flatMap(([k, v]) => [el('dt', { class: 'col-sm-4', text: k }), el('dd', { class: 'col-sm-8', text: v })]));
+    if (!r) return panel('Onboarding', el('p', { class: 'text-muted mb-0', text: 'No onboarding on file: this employee was hired before onboarding was added, or onboarding was skipped.' }));
+    const days = select('Training length', [[1, '1 day'], [2, '2 days'], [3, '3 days']], r.days), note = input('Sign-off note (kept on file)', { maxlength: 500 });
+    const stageLabel = { forms: 'Filling in forms and contract', experience: 'Experience profile', training: 'In training', review: 'Training done: ready for your sign-off', complete: 'Signed off' }[S.stage] || S.stage;
+    const exp = d.experience, levels = d.catalog.levels, taskNames = Object.fromEntries(d.catalog.tasks);
+    return panel('Onboarding & training', el('p', {}, sBadge(S.stage === 'complete' ? 'approved' : S.stage === 'review' ? 'pending' : 'open'), ' ', el('strong', { text: stageLabel }), r.signoffAt ? el('span', { class: 'text-muted small', text: ` \u00b7 signed off by ${r.signoffBy} ${when(r.signoffAt)}${r.signoffNote ? `: ${r.signoffNote}` : ''}` }) : null),
+      el('div', { class: 'row g-3 mb-3' },
+        el('div', { class: 'col-md-6' }, el('h3', { class: 'h6', text: 'Personal and payroll' }), dl([['Address', r.address], ['Emergency contact', [r.emergencyName, r.emergencyRelation, r.emergencyPhone].filter(Boolean).join(' \u00b7 ')], ['SSN last 4', r.tax.ssnLast4], ['W-4 filing status', r.tax.filing], ['Multiple jobs', r.tax.filing ? (r.tax.multipleJobs ? 'Yes' : 'No') : ''], ['Credits / other income / deductions / extra withholding', r.tax.filing ? [r.tax.credits, r.tax.otherIncome, r.tax.deductions, r.tax.extraWithholding].map(money).join(' / ') : ''], ['Work authorization (I-9)', r.i9.status], ['Documents to present', r.i9.docs], ['I-9 documents verified', r.i9.verifiedAt ? `${when(r.i9.verifiedAt)} by ${r.i9.verifiedBy}` : ''], ['Pay method', r.deposit.type ? `${r.deposit.type}${r.deposit.bank ? ` \u00b7 ${r.deposit.bank} \u2022\u2022\u2022\u2022${r.deposit.last4}` : ''}` : '']])),
+        el('div', { class: 'col-md-6' }, el('h3', { class: 'h6', text: 'Training results' }), d.training.length ? tableOf(['Module', 'Tries', 'Best', 'Passed'], d.training.map(t => el('tr', {}, el('td', { text: t.title }), el('td', { text: String(t.attempts) }), el('td', { text: t.attempts ? `${t.best}%` : '' }), el('td', { text: t.passedAt ? when(t.passedAt) : '' })))) : empty('Not started.'))),
+      el('h3', { class: 'h6', text: 'Signed documents' }), d.signatures.length ? d.signatures.map(x => el('details', { class: 'border-top py-2' }, el('summary', {}, el('strong', { text: x.kind }), el('span', { class: 'text-muted small', text: ` \u00b7 signed by ${x.name} ${when(x.signedAt)} \u00b7 IP ${x.ip}` })), el('p', { class: 'small pre-wrap mt-2 mb-1', text: x.text }), el('code', { class: 'small text-break', text: `SHA-256 ${x.hash}` }))) : empty('Nothing signed yet.'),
+      el('h3', { class: 'h6 mt-3', text: 'Experience profile' }), exp ? el('div', {},
+        exp.trades.length ? el('p', { class: 'mb-2', text: `Trades: ${exp.trades.map(t => `${t.name} (${t.years} yr, ${['', 'helper', 'skilled', 'lead'][t.level]})`).join('; ')}` }) : null,
+        el('p', { class: 'mb-2' }, ...Object.entries(exp.tasks).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => el('span', { class: `badge me-1 mb-1 text-bg-${v === 3 ? 'success' : v === 2 ? 'primary' : 'secondary'}`, title: levels[v], text: `${taskNames[k] || k}: ${levels[v]}` }))),
+        dl([['Certifications', exp.certifications], ['Licenses', exp.licenses], ['Tools owned', exp.toolsOwned], ['Languages', exp.languages], ['Past employers', exp.priorEmployers], ['Availability', exp.availability], ['Notes', exp.notes], ['Also', [exp.ownVehicle && 'vehicle', exp.driversLicense && 'driver license', exp.canLift50 && 'lifts 50 lb', exp.okWithHeights && 'OK at heights'].filter(Boolean).join(', ')]])) : empty('Not filled in yet.'),
+      el('hr'), el('div', { class: 'row g-2 align-items-end' }, el('div', { class: 'col-md-3' }, days.wrap), el('div', { class: 'col-md-9 d-flex flex-wrap gap-2 mb-3' },
+        btn('Save length', async () => { await send(`${base}/days`, 'POST', { days: Number(days.ctl.value) }); toast('Training length saved'); await refresh(); }),
+        btn('Verify I-9 documents seen', async () => { await send(`${base}/verify-i9`, 'POST', {}); toast('Recorded'); await refresh(); }),
+        btn('Reset final exam', async () => { if (confirm('Give this employee new final exam attempts?')) { await send(`${base}/reset`, 'POST', { module: 'final' }); await refresh(); } }),
+        btn('Restart all training', async () => { if (confirm('Erase all quiz results and start training over?')) { await send(`${base}/reset`, 'POST', { module: 'all' }); await refresh(); } }, 'btn-outline-danger'))),
+      S.stage === 'complete' ? btn('Re-open onboarding', async () => { if (confirm('Lock this employee out again until they are signed off?')) { await send(`${base}/reopen`, 'POST', {}); await refresh(); } }, 'btn-outline-danger') : el('div', { class: 'row g-2 align-items-end' }, el('div', { class: 'col-md-8' }, note.wrap), el('div', { class: 'col-md-4 mb-3' }, btn(S.stage === 'review' ? 'Sign off: unlock clock-in and jobs' : 'Sign off early (skip remaining steps)', async () => { if (S.stage !== 'review' && !confirm('Unlock this employee before they finish onboarding?')) return; await send(`${base}/signoff`, 'POST', { note: note.ctl.value }); toast('Signed off. Employee notified.'); await refresh(); }, 'btn-success'))));
+  };
+
+  const onboardingPage = async () => {
+    const [list, cfg, match0] = await Promise.all([api('/api/admin/onboarding'), api('/api/admin/onboarding/config'), api('/api/admin/onboarding/match')]);
+    const task = select('Who can do this task?', [['', 'Any task'], ...match0.tasks], ''), trade = select('Trade', [['', 'Any trade'], ...match0.trades.map(t => [t, t])], '');
+    const results = el('div');
+    const run = async () => {
+      const q = new URLSearchParams({ task: task.ctl.value, trade: trade.ctl.value });
+      const m = await api(`/api/admin/onboarding/match?${q}`);
+      results.replaceChildren(m.people.length ? tableOf(['Employee', 'Task level', 'Trade years', 'Ready for jobs'], m.people.map(p => el('tr', {}, el('td', {}, el('a', { href: `#employees/${p.id}`, text: p.name }), el('div', { class: 'small text-muted', text: p.roleTitle })), el('td', { text: p.level >= 0 ? m.levels[p.level] : '' }), el('td', { text: p.years ? String(p.years) : '' }), el('td', {}, sBadge(p.ready ? 'approved' : 'pending'))))) : empty('Nobody has a matching experience profile yet.'));
+    };
+    task.ctl.addEventListener('change', run); trade.ctl.addEventListener('change', run);
+    const contract = input('Employment agreement text shown to new hires', { rows: 12, maxlength: 30000 }, 'textarea'); contract.ctl.value = cfg.contractText;
+    const days = select('Default training length', [[1, '1 day'], [2, '2 days'], [3, '3 days']], cfg.defaultDays);
+    const stageName = { forms: 'Forms', experience: 'Experience', training: 'Training', review: 'Ready for sign-off', complete: 'Signed off', legacy: '' };
+    view.replaceChildren(
+      panel('New-hire onboarding', el('p', { class: 'text-muted', text: 'New hires finish tax forms and sign the agreement, describe their experience, then complete 1-3 days of training with quizzes and a final exam. They cannot clock in or see jobs until you sign them off.' }),
+        list.employees.length ? tableOf(['Employee', 'Stage', 'Forms', 'Experience', 'Modules', 'Final'], list.employees.map(e => el('tr', {}, el('td', {}, el('a', { href: `#employees/${e.id}`, class: 'fw-semibold', text: e.name }), el('div', { class: 'small text-muted', text: e.roleTitle })), el('td', {}, sBadge(e.stage === 'complete' ? 'approved' : e.stage === 'review' ? 'pending' : 'open'), ' ', stageName[e.stage] || e.stage), el('td', { text: `${e.forms}/3` }), el('td', { text: e.experience ? 'Done' : '' }), el('td', { text: `${e.modulesPassed}/${e.modules}` }), el('td', { text: e.finalPassed ? `${e.finalPercent}%` : '' })))) : empty('No new hires yet. Create an employee to start their onboarding.')),
+      panel('Find the right person for a job', el('p', { class: 'text-muted small', text: 'Searches the experience each employee reported during onboarding.' }), el('div', { class: 'row' }, el('div', { class: 'col-md-6' }, task.wrap), el('div', { class: 'col-md-6' }, trade.wrap)), results),
+      panel('Agreement and defaults', el('p', { class: 'small text-muted', text: 'This starter agreement is a template only. Have an attorney review it before use. Changing it affects people who have not signed yet.' }), contract.wrap, el('div', { class: 'row' }, el('div', { class: 'col-md-4' }, days.wrap)),
+        btn('Save', async () => { await send('/api/admin/onboarding/config', 'POST', { contractText: contract.ctl.value, defaultDays: Number(days.ctl.value) }); toast('Saved'); }, 'btn-primary')));
+    await run();
+    renderNav('onboarding');
   };
 
   // ---------- Tool photo library
@@ -892,7 +943,7 @@
     );
   };
 
-  const routes = { dashboard, customers, employees, live: livePage, toolphotos: toolPhotos, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
+  const routes = { dashboard, customers, employees, live: livePage, onboarding: onboardingPage, toolphotos: toolPhotos, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
   async function route() {
     const key = location.hash.slice(1).split('/')[0], id = routes[key] ? key : 'dashboard';
     $('#admin-title').textContent = SECTIONS.find(s => s[0] === id)[1];

@@ -85,7 +85,7 @@ test('estimator: permissions, takeoff, customer signing, documents and Stripe pa
   try {
     await signUp('admin', 'Admin', 'admin@example.com');
     await signUp('cust', 'Cust Omer', 'cust@example.com');
-    const hired = await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', roleTitle: 'Estimator', rate: 25 });
+    const hired = await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', skipOnboarding: true, roleTitle: 'Estimator', rate: 25 });
     await call('hank', 'POST', '/api/auth/reset', { token: token('hank@example.com'), password: 'correct-horse-2' });
     await call('hank', 'POST', '/api/auth/login', { email: 'hank@example.com', password: 'correct-horse-2' });
 

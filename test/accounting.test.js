@@ -25,7 +25,7 @@ test('accounting: expenses, income, 1099s, compliance and exports', async () => 
     await call('admin', 'POST', '/api/auth/register', { name: 'Admin', email: 'admin@example.com', password: 'correct-horse-1', consent: true });
     await call('admin', 'POST', '/api/auth/verify', { token: token('admin@example.com') });
     await call('admin', 'POST', '/api/auth/login', { email: 'admin@example.com', password: 'correct-horse-1' });
-    const empId = (await call('admin', 'POST', '/api/admin/employees', { name: 'Sub Contractor', email: 'sub@example.com', roleTitle: 'Tile', rate: 40 })).data.id;
+    const empId = (await call('admin', 'POST', '/api/admin/employees', { name: 'Sub Contractor', email: 'sub@example.com', skipOnboarding: true, roleTitle: 'Tile', rate: 40 })).data.id;
     await call('hank', 'POST', '/api/auth/reset', { token: token('sub@example.com'), password: 'correct-horse-2' });
     await call('hank', 'POST', '/api/auth/login', { email: 'sub@example.com', password: 'correct-horse-2' });
 

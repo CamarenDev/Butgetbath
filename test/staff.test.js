@@ -36,7 +36,7 @@ test('employee portal, jobs, hours, contracts, knowledge base and applications',
 
     // Hire: only admins can create employee accounts
     assert.equal((await call('anon', 'POST', '/api/admin/employees', { name: 'X', email: 'x@example.com' })).res.status, 401);
-    const hired = await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', phone: '555-0100', roleTitle: 'Tile setter', rate: 25, applicationId: apps[0].id });
+    const hired = await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', phone: '555-0100', skipOnboarding: true, roleTitle: 'Tile setter', rate: 25, applicationId: apps[0].id });
     assert.equal(hired.res.status, 201);
     const empId = hired.data.id;
     assert.equal((await call('admin', 'POST', '/api/admin/employees', { name: 'Hank', email: 'HANK@example.com' })).res.status, 409);

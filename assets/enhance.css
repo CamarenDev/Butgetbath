@@ -59,3 +59,9 @@ a[href^="http"]:not([href*="budgetbathsolutions"]):not(.btn)[target=_blank]::aft
 /* Tool reference photos */
 .tool-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; border: 1px solid #d7dcdc; margin-right: .5rem; vertical-align: middle; background: #f4f1ea; }
 .tool-thumb-link { display: inline-block; }
+
+/* Onboarding */
+.contract-box { max-height: 22rem; overflow-y: auto; background: #fbfaf7; font-size: .9rem; }
+.onboard-steps { list-style: none; padding-left: 0; }
+.onboard-steps .nav-link { cursor: default; }
+.onboard-steps .nav-link.done { color: #1a6b3a; }

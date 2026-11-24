@@ -29,7 +29,7 @@ test('unpaid lunch: pauses pay, needs location to return, overrun clocks out at 
     await call('admin', 'POST', '/api/auth/register', { name: 'Admin', email: 'admin@example.com', password: 'correct-horse-1', consent: true });
     await call('admin', 'POST', '/api/auth/verify', { token: token('admin@example.com') });
     await call('admin', 'POST', '/api/auth/login', { email: 'admin@example.com', password: 'correct-horse-1' });
-    await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', roleTitle: 'Tile setter', rate: 25 });
+    await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', skipOnboarding: true, roleTitle: 'Tile setter', rate: 25 });
     await call('hank', 'POST', '/api/auth/reset', { token: token('hank@example.com'), password: 'correct-horse-2' });
     await call('hank', 'POST', '/api/auth/login', { email: 'hank@example.com', password: 'correct-horse-2' });
 
