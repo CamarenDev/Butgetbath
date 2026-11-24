@@ -195,7 +195,7 @@ function createServer({
 
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
-  const server = createServer().listen(port, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
+  const server = createServer().listen(port, process.env.HOST || undefined, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
   const stopSeo = server.seoSync.start();
   server.on('close', stopSeo);
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { server.close(() => process.exit(0)); server.closeIdleConnections(); setTimeout(() => process.exit(1), 10000).unref(); });
