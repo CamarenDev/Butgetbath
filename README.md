@@ -20,6 +20,17 @@ Staff (`ADMIN_EMAILS`) schedule, reschedule and cancel appointments from a custo
 - **iCalendar**: per-appointment download at `/api/appointments/:id/ics`, and a private subscription feed for staff (shown on the staff requests page) that works with Apple Calendar, Outlook and Google Calendar "From URL".
 - **Google Calendar sync** (optional): set `GOOGLE_CALENDAR_ID` and `GOOGLE_SERVICE_ACCOUNT_JSON` (see `.env.example`). Without them, only the links, `.ics` files and feed are used.
 
+## Online booking (customers)
+
+Customers book without an account at `/book/` (also the home page hero, the "Free Estimate" buttons and the thank-you page): choose a **phone call (30 min), video call (30 min) or free in-home estimate (90 min)**, pick an open day and time, and enter name, phone, email (plus the address for a visit). Only real open times are offered: weekday hours, minimum notice, a travel buffer after in-home visits and a per-slot capacity, all editable under **Admin > Bookings > Availability** (closed days too). Staff-scheduled in-home appointments also block time. Booking is race-safe: the slot is re-checked when saving.
+
+- **Calendar**: the confirmation email attaches an `.ics` invite (alarms one day and one hour before) and links to Google Calendar, Outlook and Apple Calendar. The success screen has the same buttons.
+- **Reminders**: an email goes out about 24 hours before (checked every 5 minutes).
+- **Manage**: the confirmation has a private link (`/book/manage/?token=...`) to reschedule or cancel; changes send updated or cancel invites and alert the office. Signed-in customers see their bookings on the account dashboard. The link is an HMAC of the booking id (`booking_secret` setting).
+- **Staff**: Admin > Bookings lists upcoming and past bookings with reschedule, cancel, done, no-show and notes; the office gets an email with an `.ics`; bookings join the staff calendar feed and Google Calendar sync. Each booking also creates or updates a customer lead (marketing stays off unless the box is ticked) and a contact entry.
+- **Config**: `BUSINESS_TIMEZONE` (default `America/Chicago`) sets the hours' time zone. Set `BUSINESS_PHONE` (or `phone` in `site.json`) so the call buttons, footer and emails show your number; it is empty until you do.
+- API: `GET /api/book/{config,days,slots,manage,ics}`, `POST /api/book`, `/api/book/{cancel,reschedule}`, `GET /api/account/bookings`, `/api/admin/bookings[/config|/:id/{cancel,reschedule,status,note}]`.
+
 ## Bathroom estimator
 - `/estimator/` (staff, mobile-first): quick estimator, price book (parts, labor, equipment, subs), markup, contingency, tax on materials, deposits, optional add-ons, change orders, payments and legal documents. Admins can allow individual employees from their employee page; employees see only their own drafts and never markup or profit.
 - Customers review, sign and pay from `/account/estimate/?id=N`.

@@ -1,4 +1,4 @@
-const CACHE = 'bbs-v6';
+const CACHE = 'bbs-v7';
 const OFFLINE = '/offline/';
 
 self.addEventListener('install', event => {

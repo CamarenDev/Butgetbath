@@ -189,12 +189,13 @@ function createServer({
   if (siteUrl.startsWith('https://')) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
   server.seoSync = api.seoSync;
   server.headersTimeout = 15000; server.requestTimeout = 120000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 60;
+  server.bookings = api.bookings;
   return server;
 }
 
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
-  const server = createServer().listen(port, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
+  const server = createServer().listen(port, process.env.HOST || undefined, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
   const stopSeo = server.seoSync.start();
   server.on('close', stopSeo);
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { server.close(() => process.exit(0)); server.closeIdleConnections(); setTimeout(() => process.exit(1), 10000).unref(); });

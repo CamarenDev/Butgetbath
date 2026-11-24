@@ -1,5 +1,21 @@
 # Deployment
 
+## One-command install (Ubuntu/Debian server)
+
+Copy the project to the server, then run as root:
+
+```
+sudo ./install.sh
+```
+
+It asks for your domain, admin email, notification email, business phone and Resend key (all optional), then installs Node 24, nginx and a free HTTPS certificate, creates a locked-down `budgetbath` service user, builds the site, runs it under systemd (starts on boot, restarts on crash), turns on the firewall and finishes with about 30 automated checks (service, health, every public and portal page, booking API, sitemap/robots/llms, home page assets, file permissions, nginx, HTTPS). It exits non-zero if any check fails.
+
+Non-interactive: `sudo ./install.sh --yes --domain example.com --admin-email you@example.com --notify-email you@example.com --phone "(555) 123-4567" --resend-key re_xxx`. Other options: `--no-nginx`, `--no-ssl`, `--no-firewall`, `--run-tests`, `--port N`, `--uninstall` (see `--help`).
+
+Paths: code `/opt/budgetbath`, data (database, uploads) `/var/lib/budgetbath`, settings `/etc/budgetbath/env`. To update: pull the new code and re-run `sudo ./install.sh --yes`; settings and data are kept. For HTTPS, point the domain's DNS A record at the server first.
+
+## Manual setup
+
 Requires Node 24+ (uses built-in `node:sqlite`). No database server needed.
 
 ```

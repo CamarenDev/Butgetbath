@@ -37,7 +37,7 @@
   const badge = (text, cls = 'secondary') => el('span', { class: `badge text-bg-${cls}`, text });
 
   const SECTIONS = [
-    ['dashboard', 'Dashboard', '\u25A6'], ['customers', 'Customers', '\u2616'], ['employees', 'Employees', '\u2692'], ['live', 'Live now', '\u25C9'], ['onboarding', 'Onboarding', '\u2713'], ['toolphotos', 'Tool photos', '\u2692'], ['location', 'Location', '\u25CE'], ['jobs', 'Jobs', '\u2302'], ['estimator', 'Estimator', '\u2630'], ['company', 'Company', '\u25A4'], ['accounting', 'Accounting', '\u0024'], ['zoho', 'Zoho Books', '\u21C5'], ['seo', 'SEO files', '\u2315'], ['security', 'Security log', '\u26E8'], ['holidays', 'Holiday sales', '\u2744'], ['hr', 'HR', '\u270E'], ['knowledge', 'Knowledge base', '\u2139'], ['contacts', 'Contacts', '\u2709'], ['support', 'Support', '\u260E'], ['forum', 'Forum', '\u2756'],
+    ['dashboard', 'Dashboard', '\u25A6'], ['customers', 'Customers', '\u2616'], ['employees', 'Employees', '\u2692'], ['live', 'Live now', '\u25C9'], ['onboarding', 'Onboarding', '\u2713'], ['toolphotos', 'Tool photos', '\u2692'], ['location', 'Location', '\u25CE'], ['jobs', 'Jobs', '\u2302'], ['estimator', 'Estimator', '\u2630'], ['company', 'Company', '\u25A4'], ['accounting', 'Accounting', '\u0024'], ['zoho', 'Zoho Books', '\u21C5'], ['seo', 'SEO files', '\u2315'], ['security', 'Security log', '\u26E8'], ['holidays', 'Holiday sales', '\u2744'], ['hr', 'HR', '\u270E'], ['knowledge', 'Knowledge base', '\u2139'], ['bookings', 'Bookings', '\uD83D\uDCC5'], ['contacts', 'Contacts', '\u2709'], ['support', 'Support', '\u260E'], ['forum', 'Forum', '\u2756'],
     ['reviews', 'Reviews', '\u2605'], ['projects', 'Projects', '\u25A3'], ['images', 'Images', '\u25A8'], ['visitors', 'Visitors', '\u2197'], ['users', 'Users', '\u263A'], ['settings', 'Settings', '\u2699']
   ];
   let badges = {};
@@ -45,7 +45,7 @@
     ['Overview', ['dashboard', 'company', 'visitors']],
     ['Work', ['customers', 'jobs', 'estimator', 'employees', 'onboarding', 'live', 'toolphotos', 'location']],
     ['Money', ['accounting', 'zoho', 'holidays']],
-    ['Inbox', ['contacts', 'support', 'hr']],
+    ['Inbox', ['bookings', 'contacts', 'support', 'hr']],
     ['Website', ['projects', 'images', 'reviews', 'forum', 'knowledge', 'seo']],
     ['Admin', ['users', 'security', 'settings']]
   ];
@@ -691,6 +691,68 @@
     renderNav('onboarding');
   };
 
+  // ---------- Customer bookings (phone, video and in-home estimates booked online)
+  const bookingsPage = async () => {
+    const [list, cfgData, feed] = await Promise.all([api('/api/admin/bookings'), api('/api/admin/bookings/config'), api('/api/calendar/info').catch(() => null)]);
+    const C = cfgData.config, names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const kindName = { phone: 'Phone call', video: 'Video call', in_home: 'In-home estimate' };
+    const now = Date.now(), upcoming = list.bookings.filter(b => b.status === 'scheduled' && Date.parse(b.startsAt) >= now - 3600000), past = list.bookings.filter(b => !upcoming.includes(b)).reverse();
+    const editor = el('div');
+    const badge = st => el('span', { class: `badge text-bg-${{ scheduled: 'primary', completed: 'success', cancelled: 'secondary', no_show: 'danger' }[st] || 'secondary'}`, text: st === 'no_show' ? 'No-show' : st[0].toUpperCase() + st.slice(1) });
+    const reschedule = b => {
+      const date = input('New day', { type: 'date' }), slot = input('Open times', {}, 'select');
+      date.ctl.addEventListener('change', guard(async () => { const r = await api(`/api/book/slots?kind=${b.kind}&date=${date.ctl.value}`); slot.ctl.replaceChildren(...r.slots.map(x => el('option', { value: x.startsAt, text: x.label }))); if (!r.slots.length) slot.ctl.append(el('option', { value: '', text: 'No open times that day' })); }));
+      editor.replaceChildren(panel(`Reschedule ${b.name}`, el('p', { class: 'small text-muted', text: `Currently ${b.when}. The customer gets an updated calendar invite.` }), el('div', { class: 'row' }, el('div', { class: 'col-md-4' }, date.wrap), el('div', { class: 'col-md-4' }, slot.wrap)),
+        btn('Save new time', async () => { if (!slot.ctl.value) throw new Error('Choose a day with an open time.'); await send(`/api/admin/bookings/${b.id}/reschedule`, 'POST', { startsAt: slot.ctl.value }); toast('Rescheduled and customer notified'); bookingsPage(); }, 'btn-primary'), ' ', btn('Close', () => editor.replaceChildren())));
+      editor.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+    const note = b => {
+      const n = input('Internal note', { rows: 3, maxlength: 2000 }, 'textarea'); n.ctl.value = b.staffNotes || '';
+      editor.replaceChildren(panel(`Note on ${b.name}`, n.wrap, btn('Save note', async () => { await send(`/api/admin/bookings/${b.id}/note`, 'POST', { note: n.ctl.value }); toast('Saved'); bookingsPage(); }, 'btn-primary'), ' ', btn('Close', () => editor.replaceChildren())));
+    };
+    const row = (b, live) => el('tr', {},
+      el('td', {}, el('div', { class: 'fw-semibold', text: b.when }), el('div', { class: 'small text-muted', text: `${b.durationMin} min` })),
+      el('td', { text: kindName[b.kind] }),
+      el('td', {}, el('div', { class: 'fw-semibold', text: b.name }), el('div', { class: 'small' }, el('a', { href: `tel:${b.phone.replace(/[^\d+]/g, '')}`, text: b.phone })), el('div', { class: 'small' }, el('a', { href: `mailto:${b.email}`, text: b.email }))),
+      el('td', { class: 'small', text: [b.kind === 'in_home' ? b.address : '', b.interest, b.notes, b.staffNotes && `Note: ${b.staffNotes}`].filter(Boolean).join(' | ') }),
+      el('td', {}, badge(b.status)),
+      el('td', {}, el('div', { class: 'd-flex flex-wrap gap-1' }, live ? [btn('Reschedule', () => reschedule(b)), btn('Cancel', async () => { if (confirm(`Cancel ${b.name}'s appointment and notify them?`)) { await send(`/api/admin/bookings/${b.id}/cancel`, 'POST', {}); toast('Cancelled'); bookingsPage(); } }, 'btn-outline-danger')] : null,
+        b.status === 'scheduled' ? [btn('Done', async () => { await send(`/api/admin/bookings/${b.id}/status`, 'POST', { status: 'completed' }); bookingsPage(); }, 'btn-outline-success'), btn('No-show', async () => { await send(`/api/admin/bookings/${b.id}/status`, 'POST', { status: 'no_show' }); bookingsPage(); })] : null,
+        btn('Note', () => note(b)))));
+    const heads = ['When', 'Type', 'Customer', 'Details', 'Status', 'Actions'];
+
+    // Availability settings
+    const day = [];
+    for (let d = 1; d <= 7; d++) {
+      const i = d % 7, h = C.hours[i];
+      const open = el('input', { type: 'checkbox', class: 'form-check-input', id: `bk-open-${i}`, checked: !!h }), from = el('input', { type: 'time', class: 'form-control form-control-sm', value: h ? h[0] : '08:00', 'aria-label': `${names[i]} opens` }), to = el('input', { type: 'time', class: 'form-control form-control-sm', value: h ? h[1] : '18:00', 'aria-label': `${names[i]} closes` });
+      day.push({ i, open, from, to });
+    }
+    const f = {
+      enabled: select('Online booking', [[1, 'On'], [0, 'Paused']], C.enabled ? 1 : 0), step: input('Time between start times (minutes)', { type: 'number', min: 15, max: 120, step: 15, value: C.stepMin }), lead: input('Minimum notice (hours)', { type: 'number', min: 0, max: 168, value: C.leadHours }),
+      ahead: input('How far ahead customers can book (days)', { type: 'number', min: 1, max: 180, value: C.maxDays }), travel: input('Travel buffer after in-home visits (minutes)', { type: 'number', min: 0, max: 180, value: C.travelBufferMin }),
+      capIn: input('In-home visits at the same time', { type: 'number', min: 1, max: 20, value: C.capacity.in_home }), capRemote: input('Phone/video calls at the same time', { type: 'number', min: 1, max: 20, value: Math.max(C.capacity.phone, C.capacity.video) }),
+      off: input('Days closed (one per line, YYYY-MM-DD)', { rows: 4 }, 'textarea')
+    };
+    f.off.ctl.value = C.blackout.join('\n');
+    const save = async () => {
+      const hours = {}; for (const d of day) hours[d.i] = d.open.checked ? [d.from.value, d.to.value] : null;
+      await send('/api/admin/bookings/config', 'POST', { enabled: f.enabled.ctl.value === '1', hours, stepMin: Number(f.step.ctl.value), leadHours: Number(f.lead.ctl.value), maxDays: Number(f.ahead.ctl.value), travelBufferMin: Number(f.travel.ctl.value), capacity: { in_home: Number(f.capIn.ctl.value), phone: Number(f.capRemote.ctl.value), video: Number(f.capRemote.ctl.value) }, blackout: f.off.ctl.value.split(/\s+/).filter(Boolean) });
+      toast('Availability saved');
+    };
+    view.replaceChildren(
+      panel('Online bookings', el('p', { class: 'text-muted', text: `Customers book phone calls, video calls and in-home estimates at ${location.origin}/book/. Times shown are ${list.timeZone}. Each booking emails the customer an invite (Apple, Google and Outlook) with reminders, and emails you.` }),
+        el('div', { class: 'd-flex flex-wrap gap-3 align-items-center mb-3' }, el('span', { class: 'badge text-bg-primary fs-6', text: `${upcoming.length} upcoming` }), el('a', { class: 'btn btn-sm btn-outline-primary', href: '/book/', target: '_blank', rel: 'noopener noreferrer', text: 'Open public booking page' }), feed && el('a', { class: 'btn btn-sm btn-outline-secondary', href: feed.feedUrl, text: 'Staff calendar feed (subscribe in Apple/Google/Outlook)' })),
+        upcoming.length ? tableOf(heads, upcoming.map(b => row(b, true))) : el('p', { class: 'text-muted mb-0', text: 'No upcoming bookings yet.' })),
+      editor,
+      panel('Recent and past (last 30 days)', past.length ? tableOf(heads, past.map(b => row(b, false))) : el('p', { class: 'text-muted mb-0', text: 'Nothing yet.' })),
+      panel('Availability', el('p', { class: 'small text-muted', text: 'Customers only see open times inside these hours, after the minimum notice, and never when the capacity below is full. Staff-scheduled in-home appointments also block time.' }),
+        el('div', { class: 'mb-3' }, day.map(d => el('div', { class: 'row g-2 align-items-center mb-1' }, el('div', { class: 'col-4 col-md-2' }, el('div', { class: 'form-check' }, d.open, el('label', { class: 'form-check-label', for: `bk-open-${d.i}`, text: names[d.i] }))), el('div', { class: 'col-4 col-md-2' }, d.from), el('div', { class: 'col-4 col-md-2' }, d.to)))),
+        el('div', { class: 'row' }, [f.enabled, f.step, f.lead, f.ahead, f.travel, f.capIn, f.capRemote].map(x => el('div', { class: 'col-md-4' }, x.wrap))), f.off.wrap,
+        btn('Save availability', save, 'btn-primary')));
+    renderNav('bookings');
+  };
+
   // ---------- Tool photo library
   const toolPhotos = async () => {
     const box = el('div'), search = input('Search tools', { placeholder: 'e.g. wet tile saw, respirator' });
@@ -943,7 +1005,7 @@
     );
   };
 
-  const routes = { dashboard, customers, employees, live: livePage, onboarding: onboardingPage, toolphotos: toolPhotos, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
+  const routes = { dashboard, customers, employees, live: livePage, onboarding: onboardingPage, bookings: bookingsPage, toolphotos: toolPhotos, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
   async function route() {
     const key = location.hash.slice(1).split('/')[0], id = routes[key] ? key : 'dashboard';
     $('#admin-title').textContent = SECTIONS.find(s => s[0] === id)[1];
