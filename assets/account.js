@@ -65,6 +65,7 @@
       const data = {};
       for (const input of form.elements) if (input.name) data[input.name] = input.type === 'checkbox' ? input.checked : input.value;
       if (page === 'reset') data.token = params.get('token') || '';
+      if (/register|forgot/.test(form.dataset.api || '') && localStorage.getItem('bbs-lang') === 'es') data.lang = 'es';
       button.disabled = true;
       show(status, 'secondary', 'Please wait...');
       try {

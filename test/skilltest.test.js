@@ -81,3 +81,12 @@ test('hiring skills test: emailed token, shuffled hidden answers, server grading
     await new Promise(resolve => server.close(resolve));
   }
 });
+
+test('account emails switch to Spanish only when asked', () => {
+  const t = require('../lib/emails').createTemplates('http://localhost');
+  const args = { name: 'Ana', url: 'http://localhost/x', loginUrl: 'http://localhost/l', dashboardUrl: 'http://localhost/d' };
+  assert.equal(t.verifyEmail(args).subject, 'Confirm your email address');
+  assert.equal(t.verifyEmail({ ...args, lang: 'es' }).subject, 'Confirme su correo electrónico');
+  assert.match(t.passwordReset({ ...args, lang: 'es' }).text, /Restablezca su contraseña/);
+  assert.equal(t.welcome({ ...args, lang: 'fr' }).subject, 'Your account is ready');
+});

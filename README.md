@@ -123,7 +123,7 @@ After applying, each applicant is sent to (and emailed a link for) `/handyman-ap
 
 ## Spanish
 
-English is the default. The language switcher is in the site footer, the account page and Admin → Settings; the choice is stored in `localStorage` (`bbs-lang`) and on the account (`users.lang`). `assets/i18n.js` loads `assets/i18n-es.js` (exact-string dictionary plus patterns) only for Spanish and translates page text, placeholders, labels and dynamically rendered portal content. Add new strings to `assets/i18n-es.js`. Not translated: emails, long guide/SEO articles, customer-entered text and most estimator/admin detail screens.
+English is the default. The language switcher is in the site footer, the account page and Admin → Settings; the choice is stored in `localStorage` (`bbs-lang`) and on the account (`users.lang`). `assets/i18n.js` loads `assets/i18n-es.js` (exact-string dictionary plus patterns) only for Spanish and translates page text, placeholders, labels and dynamically rendered portal content. Add new strings to `assets/i18n-es.js`. Account emails (confirm, reset, welcome, request received) are sent in Spanish when the sign-up or account language is Spanish. Not translated: staff notices, long guide/SEO articles, customer-entered text and the longest estimator detail text.
 
 ## Permit tracking
 
