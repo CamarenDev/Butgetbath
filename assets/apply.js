@@ -14,7 +14,7 @@
     if (!form.checkValidity() || !trades.length) { form.classList.add('was-validated'); show('danger', 'Please complete the required fields.'); return; }
     const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
-    const body = { trades, consent: true, over18: form.over18.checked ? 'yes' : '' };
+    const body = { trades, lang: localStorage.getItem('bbs-lang') === 'es' ? 'es' : 'en', consent: true, over18: form.over18.checked ? 'yes' : '' };
     for (const key of ['name', 'email', 'phone', 'city', 'years', 'availability', 'licenseDetails', 'insuranceDetails', 'desiredRate', 'tools', 'experience', 'references', 'website']) body[key] = String(data.get(key) || '').trim();
     for (const key of ['licensed', 'insured', 'ownTools', 'ownVehicle', 'workAuthorized']) body[key] = yesNo(data.get(key));
     try {
@@ -23,6 +23,7 @@
       if (!response.ok) throw new Error(result.error || 'We could not send your application. Please try again.');
       form.reset();
       form.classList.remove('was-validated');
+      if (result.testToken) { location.href = `/handyman-application/test/?token=${encodeURIComponent(result.testToken)}`; return; }
       show('success', 'Thank you! We received your application and sent a confirmation to your email.');
     } catch (error) {
       show('danger', error.message);

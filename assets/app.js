@@ -9,6 +9,7 @@ document.querySelectorAll('form[data-form]').forEach(form => {
     const button = form.querySelector('button[type=submit]');
     const data = Object.fromEntries(new FormData(form));
     data.consent = form.elements.consent.checked;
+    data.marketing = Boolean(form.elements.marketing && form.elements.marketing.checked);
     button.disabled = true;
     status.className = 'form-status mt-3 text-muted';
     status.textContent = 'Sending...';
@@ -145,3 +146,6 @@ document.querySelectorAll('form[data-form]').forEach(form => {
     navigator.sendBeacon('/api/track', new Blob([JSON.stringify({ path: location.pathname, referrer: document.referrer })], { type: 'application/json' }));
   }
 }
+
+// Print buttons (CSP blocks inline handlers)
+document.querySelectorAll('[data-print]').forEach(b => b.addEventListener('click', () => window.print()));

@@ -19,12 +19,12 @@ const headers = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Frame-Options': 'DENY',
-  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(self)',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Cross-Origin-Resource-Policy': 'same-origin',
-  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+  'X-Permitted-Cross-Domain-Policies': 'none',
+  'Origin-Agent-Cluster': '?1',
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; worker-src 'self'; manifest-src 'self'"
 };
 
 function createServer({
@@ -106,16 +106,33 @@ function createServer({
       return sendJson(res, 500, { error: 'We could not send your information right now. Please try again later.' });
     }
     db.prepare('INSERT INTO contacts (type, name, email, phone, location, interest, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(clean.type, clean.name, clean.email, clean.phone, clean.location, clean.interest, clean.message, clean.receivedAt);
+    saveLead(clean, input.marketing === true);
     await mail({ to: clean.email, ...templates.leadConfirmation({ name: clean.name, type: clean.type }) });
     if (notifyEmail) await mail({ to: notifyEmail, replyTo: clean.email, ...templates.leadAlert({ submission: clean }) });
     return sendJson(res, 201, { message: 'Thanks for reaching out.' });
+  }
+
+  // Every contact-form email becomes (or updates) a customer record so the admin can follow up later.
+  // Marketing mail only goes to people who ticked the opt-in box; everyone else starts opted out.
+  function saveLead(c, optin) {
+    const now = c.receivedAt, source = `website-${c.type}`;
+    const note = [c.interest && `Interested in: ${c.interest}`, c.location && `Area: ${c.location}`].filter(Boolean).join('. ');
+    const found = db.prepare('SELECT id, phone FROM customers WHERE email = ? COLLATE NOCASE').get(c.email);
+    if (!found) {
+      const linked = db.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').get(c.email);
+      db.prepare("INSERT INTO customers (user_id, name, email, phone, address, status, notes, created_at, updated_at, marketing_optout, source, marketing_optin_at) VALUES (?, ?, ?, ?, '', 'lead', ?, ?, ?, ?, ?, ?)")
+        .run(linked?.id ?? null, c.name, c.email, c.phone, note, now, now, optin ? 0 : 1, source, optin ? now : '');
+      return;
+    }
+    db.prepare("UPDATE customers SET phone = CASE WHEN phone = '' THEN ? ELSE phone END, updated_at = ? WHERE id = ?").run(c.phone, now, found.id);
+    if (optin) db.prepare('UPDATE customers SET marketing_optout = 0, marketing_optin_at = ? WHERE id = ?').run(now, found.id);
   }
 
   async function serveFile(req, res, file, status = 200) {
     const [content, stat] = await Promise.all([fs.readFile(file), fs.stat(file)]);
     const ext = path.extname(file);
     const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
-    const cache = ext === '.html' || path.basename(file) === 'sw.js' ? 'no-cache' : file.includes(`${path.sep}vendor${path.sep}`) ? 'public, max-age=31536000, immutable' : 'public, max-age=86400';
+    const cache = ext === '.html' || path.basename(file) === 'sw.js' ? 'no-cache' : file.includes(`${path.sep}vendor${path.sep}`) || /^v=[a-f0-9]{10}$/.test(new URL(req.url, 'http://x').search.slice(1)) ? 'public, max-age=31536000, immutable' : 'public, max-age=86400';
     const out = { ...headers, 'Content-Type': types[ext] || 'application/octet-stream', 'Cache-Control': cache, Vary: 'Accept-Encoding', ETag: etag };
     if (status === 200 && req.headers['if-none-match'] === etag) { res.writeHead(304, out); return res.end(); }
     let body = content;
@@ -162,14 +179,24 @@ function createServer({
       if (!res.headersSent) sendJson(res, 500, { error: 'Something went wrong. Please try again later.' });
     }
   });
-  server.on('close', () => db.close());
+  server.tracking = api.tracking;
+  server.company = api.company;
+  server.zoho = api.zoho;
+  const stopMonitor = api.tracking.startMonitor();
+  const stopHolidays = api.company.start();
+  const stopZoho = api.zoho.start();
+  server.on('close', () => { stopMonitor(); stopHolidays(); stopZoho(); db.close(); });
   if (siteUrl.startsWith('https://')) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+  server.seoSync = api.seoSync;
+  server.headersTimeout = 15000; server.requestTimeout = 120000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 60;
   return server;
 }
 
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
   const server = createServer().listen(port, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
+  const stopSeo = server.seoSync.start();
+  server.on('close', stopSeo);
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { server.close(() => process.exit(0)); server.closeIdleConnections(); setTimeout(() => process.exit(1), 10000).unref(); });
 }
 module.exports = { createServer };

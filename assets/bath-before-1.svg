@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-label="Illustration of a dated pink-tile bathroom with a worn tub, stained grout and a cracked vanity">
+<defs><pattern id="t" width="40" height="40" patternUnits="userSpaceOnUse"><rect width="40" height="40" fill="#e8b9b0"/><path d="M0 0H40V40" fill="none" stroke="#b79a8a" stroke-width="3"/></pattern>
+<pattern id="f" width="50" height="50" patternUnits="userSpaceOnUse"><rect width="50" height="50" fill="#b9aa8d"/><path d="M0 0H50V50" fill="none" stroke="#8a7d63" stroke-width="2"/></pattern>
+<linearGradient id="d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#000" stop-opacity=".35"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient></defs>
+<rect width="800" height="600" fill="#cdb9a0"/>
+<rect width="800" height="380" fill="url(#t)"/>
+<rect y="380" width="800" height="220" fill="url(#f)"/>
+<rect width="800" height="380" fill="url(#d)"/>
+<g fill="#7a5b3a" opacity=".35"><ellipse cx="120" cy="90" rx="60" ry="26"/><ellipse cx="700" cy="140" rx="48" ry="20"/><ellipse cx="560" cy="60" rx="34" ry="14"/></g>
+<path d="M610 0 l-18 70 22 40 -14 60" fill="none" stroke="#6b4a2d" stroke-width="3"/>
+<rect x="40" y="250" width="380" height="150" rx="16" fill="#d79e97" stroke="#a9746d" stroke-width="5"/>
+<rect x="58" y="268" width="344" height="100" rx="12" fill="#c98a83"/>
+<path d="M120 300 q40 -20 80 0 M260 330 q50 -18 90 4" stroke="#8c5a4c" stroke-width="4" fill="none" opacity=".6"/>
+<rect x="30" y="400" width="400" height="20" fill="#a9746d"/>
+<rect x="440" y="120" width="12" height="80" fill="#9aa0a6"/><circle cx="446" cy="205" r="14" fill="#7d838a"/><path d="M446 219 v40" stroke="#4d90c9" stroke-width="3" stroke-dasharray="6 8"/>
+<rect x="500" y="280" width="260" height="170" fill="#8b6a45" stroke="#5e442b" stroke-width="5"/>
+<rect x="515" y="296" width="110" height="140" fill="#9a7650"/><rect x="637" y="296" width="110" height="140" fill="#9a7650"/>
+<circle cx="610" cy="366" r="6" fill="#d8c27a"/><circle cx="650" cy="366" r="6" fill="#d8c27a"/>
+<rect x="490" y="262" width="280" height="22" rx="6" fill="#e7d9cf"/>
+<path d="M590 262 q40 -30 80 0z" fill="#d9cdbf"/><rect x="624" y="226" width="12" height="36" fill="#a79a50"/>
+<rect x="520" y="90" width="210" height="120" fill="#c9d2d6" stroke="#6b5a3c" stroke-width="8"/>
+<path d="M530 100 l190 100" stroke="#fff" stroke-width="5" opacity=".35"/>
+<path d="M590 94 l12 40 -10 30 8 40" stroke="#4a4a4a" stroke-width="2.5" fill="none"/>
+<line x1="300" y1="0" x2="300" y2="60" stroke="#555" stroke-width="4"/><circle cx="300" cy="78" r="22" fill="#f4e7a0"/><circle cx="300" cy="78" r="46" fill="#f4e7a0" opacity=".18"/>
+<g fill="#5d4a2c" opacity=".4"><rect x="0" y="372" width="800" height="10"/><circle cx="120" cy="500" r="40"/><circle cx="640" cy="520" r="28"/></g>
+<path d="M0 600 L0 380 H800" fill="none" stroke="#5d4a2c" stroke-width="2" opacity=".4"/>
+</svg>

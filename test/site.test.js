@@ -350,3 +350,41 @@ test('landmarks, image hints and breadcrumbs are present', async () => {
   assert.match(guide, /aria-current="page"/);
   assert.match(guide, /fetchpriority="high"/);
 });
+
+test('SEO audit: unique titles, one h1, valid JSON-LD, town and cost pages, llms.txt', async () => {
+  const sitemap = await (await fetch(base + '/sitemap.xml')).text();
+  const urls = [...sitemap.matchAll(/<loc>https:\/\/budgetbathsolutions\.com([^<]+)<\/loc>/g)].map(m => m[1]);
+  assert.ok(urls.length > 100);
+  assert.ok(urls.includes('/service-areas/kane-county/aurora/') && urls.includes('/bathroom-remodel-cost/tile-installation-cost/') && urls.includes('/how-it-works/'));
+  const titles = new Set();
+  for (const u of urls) {
+    const html = await (await fetch(base + u)).text();
+    const title = html.match(/<title>([^<]+)<\/title>/)[1].replace(/&amp;/g, '&');
+    assert.ok(!titles.has(title), `duplicate title ${title}`);
+    titles.add(title);
+    assert.ok(title.length <= 63, `title too long on ${u}`);
+    const desc = html.match(/<meta name="description" content="([^"]*)">/)[1].replace(/&(amp|quot|#39|lt|gt);/g, '_');
+    assert.ok(desc.length >= 20 && desc.length <= 160, `description length on ${u}`);
+    assert.strictEqual((html.match(/<h1[ >]/g) || []).length, 1, `h1 count on ${u}`);
+    for (const m of html.matchAll(/<script type="application\/ld\+json">([^]*?)<\/script>/g)) JSON.parse(m[1]);
+  }
+  const llms = await fetch(base + '/llms.txt');
+  assert.strictEqual(llms.status, 200);
+  assert.match(await llms.text(), /Aurora, IL/);
+});
+
+test('SEO generator keeps lastmod stable until a page really changes and lists every indexed page', () => {
+  const os = require('node:os'), fs = require('node:fs'), path = require('node:path');
+  const { generateSeoFiles } = require('../lib/seo');
+  const statePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'seo-')), 'state.json');
+  const site = { name: 'Test Co', url: 'https://example.com' };
+  const make = (html, today) => generateSeoFiles({ site, statePath, today, intro: 'Intro', keyPages: ['/a/'], towns: [], pages: [{ url: '/', html: 'home' }, { url: '/a/', html }, { url: '/private/', html: 'x', noindex: true }] });
+  const first = make('one', '2026-01-01');
+  fs.writeFileSync(statePath, JSON.stringify(first.state));
+  const same = make('one updated 2026-05-05', '2026-02-02');
+  assert.equal(first.files['sitemap.xml'].includes('/private/'), false);
+  assert.equal(first.files['llms.txt'].includes('https://example.com/a/'), true);
+  assert.match(first.files['robots.txt'], /Sitemap: https:\/\/example.com\/sitemap.xml/);
+  assert.equal(same.state['/'].lastmod, '2026-01-01');
+  assert.equal(same.state['/a/'].lastmod, '2026-02-02');
+});

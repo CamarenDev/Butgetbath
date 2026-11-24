@@ -123,6 +123,8 @@ test('estimator: permissions, takeoff, customer signing, documents and Stripe pa
     const gutAdvice = (await call('admin', 'POST', '/api/estimator/advice', { inputs: gutInputs })).data;
     const normalAdvice = (await call('admin', 'POST', '/api/estimator/advice', { inputs: { ...gutInputs, fullRemodel: false } })).data;
     assert.ok(gutAdvice.totalCents > normalAdvice.totalCents * 1.5 && gutAdvice.notes.some(n => /studs/i.test(n)));
+    assert.ok(gutAdvice.process.kind === 'bathroom' && gutAdvice.process.cushionPct === 8 && gutAdvice.process.steps.every(st => st.steps.length && st.tools.length && st.supplies.length));
+    assert.equal((await call('admin', 'GET', '/api/estimator/labor-times')).data.cushionPct, 8);
     const resultsPdf = await call('admin', 'POST', '/api/estimator/advice/pdf', { title: 'Gut remodel', inputs: gutInputs });
     assert.equal(resultsPdf.res.status, 200);
     assert.equal(resultsPdf.res.headers.get('content-type'), 'application/pdf');

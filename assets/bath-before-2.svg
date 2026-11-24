@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-label="Illustration of an old fiberglass shower stall with a stained curtain, peeling paint and a cracked floor">
+<rect width="800" height="600" fill="#c8c2a8"/>
+<rect y="400" width="800" height="200" fill="#9d9684"/>
+<g stroke="#7d7767" stroke-width="2"><path d="M0 470H800M0 540H800M200 400V600M420 400V600M640 400V600"/></g>
+<g fill="#a89e7e" opacity=".6"><path d="M0 0H220L180 90 230 150 190 240 0 260Z"/><path d="M700 0H800V190L740 150 760 80Z"/></g>
+<rect x="250" y="60" width="330" height="360" fill="#dfe3df" stroke="#9aa09a" stroke-width="8"/>
+<rect x="270" y="80" width="290" height="320" fill="#e9ece6"/>
+<path d="M270 80V400" stroke="#cfd4cc" stroke-width="3"/>
+<path d="M300 300 q10 60 -2 100 M480 250 q14 70 4 150" stroke="#b5ad7e" stroke-width="10" opacity=".55" fill="none"/>
+<rect x="250" y="56" width="330" height="10" fill="#777"/>
+<g fill="#7aa7b8" stroke="#4a6f7d" stroke-width="3"><path d="M270 66 q18 28 0 56 q18 28 0 56 q18 28 0 56 q18 28 0 56 V66Z" opacity=".85"/><path d="M270 66H400V350H270Z" opacity=".35"/></g>
+<rect x="470" y="96" width="40" height="22" rx="6" fill="#8a8f94"/><circle cx="490" cy="150" r="18" fill="#8a8f94"/><circle cx="490" cy="150" r="9" fill="#5e6368"/>
+<path d="M490 168 v50" stroke="#3f88c5" stroke-width="3" stroke-dasharray="6 9"/>
+<rect x="640" y="250" width="110" height="150" fill="#8d6a45" stroke="#5e442b" stroke-width="4"/><circle cx="660" cy="330" r="5" fill="#cbb77b"/>
+<rect x="60" y="120" width="130" height="70" fill="#bfc6bd" stroke="#78705a" stroke-width="5"/>
+<path d="M70 130 l110 50" stroke="#fff" stroke-width="3" opacity=".4"/>
+<rect x="250" y="400" width="330" height="30" fill="#c4c9c1" stroke="#9aa09a" stroke-width="4"/>
+<g fill="#6b5f3d" opacity=".5"><circle cx="330" cy="415" r="6"/><circle cx="440" cy="418" r="9"/><circle cx="525" cy="414" r="5"/></g>
+<path d="M300 430 l40 40 -20 50" stroke="#6b5f3d" stroke-width="3" fill="none" opacity=".7"/>
+</svg>

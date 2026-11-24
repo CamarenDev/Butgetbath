@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" role="img" aria-label="Illustration of a luxury remodeled bathroom with marble tile, a freestanding tub, a floating wood vanity and an arched mirror">
+<defs><linearGradient id="w" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f6f4ef"/><stop offset="1" stop-color="#e6e2da"/></linearGradient>
+<linearGradient id="fl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#cfc9bf"/><stop offset="1" stop-color="#b9b2a6"/></linearGradient>
+<linearGradient id="gl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#dff0f7"/><stop offset="1" stop-color="#b6d6e6"/></linearGradient>
+<radialGradient id="gw" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#ffe9b8" stop-opacity=".7"/><stop offset="1" stop-color="#ffe9b8" stop-opacity="0"/></radialGradient></defs>
+<rect width="800" height="600" fill="url(#w)"/>
+<g stroke="#cfcac0" stroke-width="2" opacity=".8"><path d="M0 95H800M0 190H800M0 285H800"/><path d="M130 0V380M260 0V380M390 0V380M520 0V380M650 0V380"/></g>
+<path d="M60 30 C120 90 160 40 240 110 S 360 200 440 150" stroke="#b8b2a6" stroke-width="3" fill="none" opacity=".5"/>
+<rect y="380" width="800" height="220" fill="url(#fl)"/>
+<g stroke="#a9a296" stroke-width="2" opacity=".7"><path d="M0 440H800M0 510H800M0 580H800"/><path d="M130 380L60 600M300 380L280 600M480 380L500 600M650 380L730 600"/></g>
+<rect x="30" y="140" width="250" height="220" fill="url(#gl)" opacity=".7" stroke="#2b2f36" stroke-width="5"/>
+<path d="M155 140V360M30 250H280" stroke="#2b2f36" stroke-width="3"/>
+<rect x="60" y="360" width="190" height="20" fill="#1f2937" opacity=".3"/>
+<ellipse cx="520" cy="440" rx="190" ry="26" fill="#000" opacity=".12"/>
+<path d="M360 320 H680 Q690 400 640 425 H400 Q350 400 360 320Z" fill="#fff" stroke="#d7d2c8" stroke-width="4"/>
+<path d="M376 332 H664 Q670 385 630 405 H410 Q372 385 376 332Z" fill="#eef3f6"/>
+<rect x="352" y="318" width="336" height="14" rx="7" fill="#fff" stroke="#d7d2c8" stroke-width="3"/>
+<rect x="700" y="200" width="10" height="150" rx="5" fill="#c9a24b"/><path d="M705 200 q-10 -40 -50 -40" fill="none" stroke="#c9a24b" stroke-width="8" stroke-linecap="round"/>
+<rect x="480" y="46" width="170" height="220" rx="85" fill="#eaf2f6" stroke="#c9a24b" stroke-width="8"/>
+<path d="M505 220 L600 80 M545 240 L635 120" stroke="#fff" stroke-width="10" opacity=".55"/>
+<rect x="300" y="250" width="160" height="12" rx="4" fill="#c9a24b" opacity="0"/>
+<circle cx="400" cy="80" r="90" fill="url(#gw)"/><circle cx="400" cy="80" r="14" fill="#fff4d6"/><path d="M400 0V66" stroke="#c9a24b" stroke-width="3"/>
+<rect x="60" y="410" width="12" height="90" rx="6" fill="#c9a24b"/><rect x="40" y="395" width="52" height="8" rx="4" fill="#c9a24b"/>
+<g fill="#2f7d4f"><ellipse cx="215" cy="478" rx="12" ry="34" transform="rotate(-18 215 478)"/><ellipse cx="235" cy="474" rx="12" ry="38" transform="rotate(6 235 474)"/><ellipse cx="255" cy="480" rx="11" ry="32" transform="rotate(24 255 480)"/></g>
+<rect x="200" y="486" width="70" height="60" rx="10" fill="#1f2937"/>
+</svg>

@@ -1,8 +1,8 @@
-const CACHE = 'bbs-v2';
+const CACHE = 'bbs-v5';
 const OFFLINE = '/offline/';
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(c => c.addAll([OFFLINE, '/styles.css', '/enhance.css', '/enterprise.css', '/vendor/bootstrap.min.css'])).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(c => c.add(OFFLINE)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {

@@ -21,10 +21,11 @@
   const usd = c => `$${((c || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const day = v => v ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T12:00:00` : v).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '';
   const COLORS = { draft: 'secondary', sent: 'primary', accepted: 'success', declined: 'danger', void: 'dark' };
-  const badge = s => el('span', { class: `badge text-bg-${COLORS[s] || 'secondary'}`, text: s });
+  const badge = s => el('span', { class: `est-pill est-pill-${COLORS[s] ? s : 'draft'}`, text: s });
+  const stat = (label, value, tone = '') => el('div', { class: `est-stat ${tone}` }, el('span', { class: 'est-stat-v', text: value }), el('span', { class: 'est-stat-l', text: label }));
   const KIND_FALLBACK = { material: 'Materials', labor: 'Labor', sub: 'Subcontractor', equipment: 'Equipment', fee: 'Fees & permits', other: 'Other' };
 
-  let me = null, boot_ = null, alertBox = el('div', { class: 'mb-3', role: 'status', 'aria-live': 'polite' });
+  let me = null, boot_ = null, alertBox = el('div', { class: 'mb-3 est-alert', role: 'status', 'aria-live': 'polite' });
   const notice = (kind, message) => { alertBox.className = `alert alert-${kind} mb-3`; alertBox.textContent = message; alertBox.scrollIntoView({ block: 'nearest' }); };
   const clear = () => { alertBox.className = 'mb-3'; alertBox.textContent = ''; };
   const act = fn => async (...a) => { try { clear(); await fn(...a); } catch (e) { if (e.status === 401) return start(); notice('danger', e.message); } };
@@ -44,7 +45,7 @@
     const ctl = el('input', { class: 'form-check-input', type: 'checkbox', id, ...(checked ? { checked: true } : {}) });
     return { ctl, wrap: el('div', { class: 'form-check form-switch mb-2 fs-6' }, ctl, el('label', { class: 'form-check-label', for: id, text: label })) };
   };
-  const card = (title, ...kids) => el('div', { class: 'card card-body mb-3' }, title ? el('h3', { class: 'h5', text: title }) : null, ...kids);
+  const card = (title, ...kids) => el('section', { class: 'est-card' }, title ? el('h3', { class: 'est-card-title', text: title }) : null, ...kids);
   const num = v => (v === '' || v == null ? undefined : Number(v));
 
   // ---------- Sign-in & boot
@@ -69,18 +70,38 @@
       try { await send('/api/auth/login', { email: email.ctl.value, password: password.ctl.value }); await start(); } catch (error) { status.className = 'alert alert-danger mt-3'; status.textContent = error.message; }
     };
     root.className = '';
-    root.replaceChildren(el('div', { class: 'row justify-content-center' }, el('div', { class: 'col-lg-5' }, el('form', { class: 'card card-body p-4 shadow', onsubmit: submit, novalidate: true },
-      el('h2', { class: 'h4', text: 'Estimator sign in' }), email.wrap, password.wrap, el('button', { class: 'btn btn-brass btn-lg', type: 'submit', text: 'Sign in' }), status))));
+    root.replaceChildren(el('div', { class: 'row justify-content-center' }, el('div', { class: 'col-lg-5' }, el('form', { class: 'est-card est-login', onsubmit: submit, novalidate: true },
+      el('h2', { class: 'est-card-title', text: 'Estimator sign in' }), el('p', { class: 'text-muted small', text: 'Staff only. Use the same email and password as your employee account.' }), email.wrap, password.wrap, el('button', { class: 'btn btn-primary btn-lg w-100', type: 'submit', text: 'Sign in' }), status))));
   }
 
-  const header = current => el('div', { class: 'mb-3' },
-    el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-2 mb-2' }, el('span', { class: 'text-muted', text: `${me.name} \u00b7 ${me.role}` }),
+  const TABS = [['list', 'Estimates'], ['new', 'Start estimate'], ['book', 'Price book', 1], ['learning', 'AI learning', 1], ['tasks', 'Handyman tasks', 1], ['settings', 'Defaults', 1]];
+  const header = current => el('header', { class: 'est-head' },
+    el('div', { class: 'est-bar' }, el('div', { class: 'est-title' }, el('span', { class: 'est-avatar', 'aria-hidden': 'true', text: (me.name || '?').trim().charAt(0).toUpperCase() }),
+      el('span', {}, el('strong', { text: 'Estimator' }), el('span', { class: 'est-sub', text: `${me.name} \u00b7 ${me.role}` }))),
       btn('Sign out', async () => { await send('/api/auth/logout', {}); boot_ = null; await start(); }, 'btn-sm btn-outline-secondary')),
-    el('ul', { class: 'nav nav-pills flex-wrap gap-1' }, [['list', 'Estimates'], ['new', 'New estimate'], ...(me.role === 'admin' ? [['book', 'Price book'], ['learning', 'AI learning'], ['tasks', 'Handyman tasks'], ['settings', 'Defaults']] : [])].map(([id, label]) =>
-      el('li', { class: 'nav-item' }, el('a', { class: `nav-link${id === current ? ' active' : ''}`, href: `#${id}`, text: label })))));
+    el('nav', { class: 'est-tabs', 'aria-label': 'Estimator sections' }, TABS.filter(t => !t[2] || me.role === 'admin').map(([id, label]) =>
+      el('a', { class: `est-tab${id === current || (id === 'list' && current === 'edit') ? ' active' : ''}`, href: `#${id}`, ...(id === current ? { 'aria-current': 'page' } : {}), text: label }))));
 
   const page = (current, ...kids) => { alertBox.className = 'mb-3'; alertBox.textContent = ''; root.replaceChildren(header(current), alertBox, ...kids); };
 
+  const processRows = proc => {
+    if (!proc) return [];
+    const list = items => el('ul', { class: 'mb-1 ps-3' }, ...items.map(t => el('li', { text: t })));
+    const rows = (proc.steps || proc.tasks || []).map(st => el('details', { class: 'mb-1' },
+      el('summary', { class: 'fw-bold', text: `${st.n}. ${st.title || st.name} \u00b7 ${st.hours} hrs${st.crew ? ` \u00b7 crew ${st.crew}` : ''}${st.qty ? ` \u00b7 ${st.qty} ${st.unit}` : ''}` }),
+      el('div', { class: 'fw-semibold' }, 'How'), el('ol', { class: 'mb-1 ps-3' }, ...st.steps.map(t => el('li', { text: t }))),
+      el('div', { class: 'fw-semibold' }, 'Tools'), list(st.tools), el('div', { class: 'fw-semibold' }, 'Supplies'), list(st.supplies),
+      ...(st.jobSupplies && st.jobSupplies.length ? [el('div', { class: 'fw-semibold' }, 'Quantities for this job'), list(st.jobSupplies.map(l => `${l.name}: ${l.qty} ${l.unit}`))] : [])));
+    const grp = (title, nodes) => nodes.length ? el('details', { class: 'mb-1' }, el('summary', { class: 'fw-bold', text: title }), ...nodes) : null;
+    const extra = [
+      grp('Access, supplies, debris, cleanup and travel', (proc.logistics || []).map(r => el('p', { class: 'mb-1' }, el('strong', { text: `${r.label}: ` }), r.text))),
+      proc.travel ? grp('Driving and tolls', [list([`${proc.travel.oneWayMiles} miles, about ${proc.travel.oneWayMinutes} minutes each way; ${proc.travel.vehicles} vehicle(s) over ${proc.travel.days} day(s)`, `Paid drive time ${proc.travel.driveHours} hrs, mileage ${proc.travel.miles} mi${proc.travel.toll ? `, tolls $${proc.travel.toll} per one-way trip` : ', no tolls'}`])]) : null,
+      grp('Who does what (crew roles)', (proc.crew || []).map(c => el('div', { class: 'mb-1' }, el('strong', { text: `${c.role}${c.people > 1 ? ` x${c.people}` : ''} \u00b7 ${c.hours} hrs` }), el('div', { class: 'text-muted', text: c.note })))),
+      grp('Day-by-day plan', (proc.dayPlan || []).map(d => el('div', { class: 'border-bottom py-1', text: `${d.days}: ${d.title}${d.crew ? ` (crew ${d.crew})` : ''}${d.roles && d.roles.length ? ` \u2014 ${d.roles.join(', ')}` : ''}${d.note ? `. ${d.note}` : ''}` }))),
+      grp('Daily cleanup, final clean, disposal and paperwork', Object.entries(proc.closeout || {}).map(([k, v]) => el('div', { class: 'mb-1' }, el('div', { class: 'fw-semibold text-capitalize', text: k }), list(v))))
+    ].filter(Boolean);
+    return [el('h3', { class: 'h6 mt-2', text: `Step-by-step process (${proc.totalHours} hrs, includes ${proc.cushionPct}% cushion for human error and unforeseen conditions)` }), ...rows, ...extra];
+  };
   async function route() {
     const hash = location.hash.replace(/^#/, '') || 'list';
     const [name, id] = hash.split('/');
@@ -98,25 +119,26 @@
   // ---------- Estimate list
   async function list() {
     const q = field('Search', { type: 'search', placeholder: 'Title, number or customer' }), status = select('Status', [['', 'All'], ['draft', 'Draft'], ['sent', 'Sent'], ['accepted', 'Accepted'], ['declined', 'Declined'], ['void', 'Void']], '');
-    const out = el('div');
+    const out = el('div', { class: 'est-rows' }), tiles = el('div', { class: 'est-stats mb-3' });
     const load = act(async () => {
       const { estimates } = await api(`/api/estimator/estimates?q=${encodeURIComponent(q.ctl.value)}&status=${status.ctl.value}`);
-      out.replaceChildren(...(estimates.length ? estimates.map(e => el('a', { class: 'card card-body mb-2 text-decoration-none text-reset', href: `#e/${e.id}` },
-        el('div', { class: 'd-flex justify-content-between gap-2' }, el('strong', { text: e.title }), badge(e.status)),
-        el('div', { class: 'small text-muted', text: [e.number, e.customerName, day(e.createdAt)].filter(Boolean).join(' \u00b7 ') }),
-        el('div', { class: 'fw-bold', text: usd(e.totalCents) }))) : [el('p', { class: 'text-muted', text: 'No estimates yet.' })]));
+      const sum = k => estimates.filter(e => e.status === k).reduce((a, e) => a + (e.totalCents || 0), 0);
+      tiles.replaceChildren(stat('Estimates', String(estimates.length)), stat('Open (draft + sent)', usd(sum('draft') + sum('sent'))), stat('Accepted', usd(sum('accepted')), 'good'));
+      out.replaceChildren(...(estimates.length ? estimates.map(e => el('a', { class: 'est-row', href: `#e/${e.id}` },
+        el('div', { class: 'est-row-main' }, el('strong', { text: e.title }), el('span', { class: 'est-row-meta', text: [e.number, e.customerName, day(e.createdAt)].filter(Boolean).join(' \u00b7 ') })),
+        el('div', { class: 'est-row-end' }, el('strong', { class: 'est-row-amt', text: usd(e.totalCents) }), badge(e.status)))) : [el('div', { class: 'est-empty' }, el('p', { class: 'mb-2', text: q.ctl.value || status.ctl.value ? 'No estimates match your search.' : 'No estimates yet.' }), el('a', { class: 'btn btn-primary', href: '#new', text: 'Create your first estimate' }))]));
     });
     let timer;
     q.ctl.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 250); });
     status.ctl.addEventListener('change', load);
-    page('list', el('div', { class: 'row g-2' }, el('div', { class: 'col-8' }, q.wrap), el('div', { class: 'col-4' }, status.wrap)), out);
+    page('list', el('div', { class: 'est-start' }, el('div', {}, el('h2', { class: 'est-start-t', text: 'Ready for a new estimate?' }), el('p', { class: 'mb-0', text: 'Answer a few questions, starting with the room, and get a full price, schedule and plan.' })), el('a', { class: 'btn btn-light btn-lg est-start-btn', href: '#new', text: 'Start estimate' })), tiles, el('div', { class: 'est-card' }, el('div', { class: 'row g-2' }, el('div', { class: 'col-sm-8' }, q.wrap), el('div', { class: 'col-sm-4' }, status.wrap))), out);
     await load();
   }
 
   // ---------- New estimate with quick wizard
   async function newEstimate() {
     const title = field('Estimate title', { maxlength: 150, value: 'Bathroom remodel' });
-    const search = field('Find customer', { type: 'search', placeholder: 'Name, email or phone' }), results = el('div', { class: 'mb-3' });
+    const search = field('Find customer', { type: 'search', placeholder: 'Name, email or phone' }), customerResults = el('div', { class: 'mb-3' });
     let customerId = null;
     const picked = el('div', { class: 'fw-bold mb-3' });
     const nc = { name: field('New customer name', { maxlength: 120 }), email: field('Email', { type: 'email', maxlength: 200 }), phone: field('Phone', { type: 'tel', maxlength: 40 }), address: field('Address', { maxlength: 300 }) };
@@ -125,7 +147,7 @@
       clearTimeout(timer);
       timer = setTimeout(act(async () => {
         const { customers } = await api(`/api/estimator/customers?q=${encodeURIComponent(search.ctl.value)}`);
-        results.replaceChildren(...customers.map(c => el('button', { type: 'button', class: 'list-group-item list-group-item-action w-100 text-start', text: `${c.name}${c.address ? ` \u00b7 ${c.address}` : ''}`, onclick: () => { customerId = c.id; picked.textContent = `Customer: ${c.name}`; results.replaceChildren(); } })));
+        customerResults.replaceChildren(...customers.map(c => el('button', { type: 'button', class: 'list-group-item list-group-item-action w-100 text-start', text: `${c.name}${c.address ? ` \u00b7 ${c.address}` : ''}`, onclick: () => { customerId = c.id; picked.textContent = `Customer: ${c.name}`; results.replaceChildren(); } })));
       }), 250);
     });
     const w = {
@@ -146,13 +168,24 @@
       vanityType: select('Vanity', [['single', 'Single'], ['double', 'Double']], 'single'),
       toiletMode: select('Toilet', [['replace', 'Replace'], ['rebuild', 'Rebuild internals only'], ['keep', 'Keep']], 'replace'),
       wallTileSf: field('Shower wall tile (sq ft, blank = calculate)', { type: 'number', inputmode: 'decimal', min: '0' }),
+      showerLength: field('Shower or tub length (ft)', { type: 'number', inputmode: 'decimal', min: '0', max: '12', placeholder: 'e.g. 5' }),
+      showerWidth: field('Shower or tub width (ft)', { type: 'number', inputmode: 'decimal', min: '0', max: '12', placeholder: 'e.g. 3' }),
+      windowCount: field('Windows in the room', { type: 'number', inputmode: 'numeric', min: '0', max: '6', value: '0' }),
+      floorSf: field('Floor area (sq ft, blank = length x width)', { type: 'number', inputmode: 'decimal', min: '0' }),
+      wainscotSf: field('Wainscot or accent wall (sq ft, 0 = none)', { type: 'number', inputmode: 'decimal', min: '0', value: '0' }),
+      ceilingWork: select('Ceiling', [['none', 'Leave as is'], ['patch', 'Patch and repaint'], ['replace', 'Replace the ceiling']], 'none'),
       vanities: field('Vanities', { type: 'number', inputmode: 'numeric', min: '0', max: '4', value: '1' })
     };
-    const toggles = { demo: check('Demolition & haul-away', true), niche: check('Shower niche', true), bench: check('Shower bench'), curbless: check('Curbless shower entry'), heatedFloor: check('Heated floor'), newTub: check('New tub'), drywall: check('Drywall repair', true), fan: check('Exhaust fan', true), lighting: check('New lighting', true), paint: check('Paint', true), permit: check('Permit', true), plumbingChanges: check('Relocate plumbing'), fullRemodel: check('Full remodel: gut walls to the studs and floor to the subfloor'), suggestUpgrades: check('Offer optional upgrades to the customer', true) };
+    const toggles = { demo: check('Demolition & haul-away', true), niche: check('Shower niche', true), bench: check('Shower bench'), curbless: check('Curbless shower entry'), heatedFloor: check('Heated floor'), newTub: check('New tub'), fan: check('Exhaust fan', true), lighting: check('New lighting', true), paint: check('Paint', true), permit: check('Permit', true), plumbingChanges: check('Relocate plumbing'), electricalChanges: check('Update or add electrical circuits'), insulation: check('Add wall insulation'), framing: check('Framing and blocking repairs'), soundproof: check('Soundproofing'), suggestUpgrades: check('Offer optional upgrades to the customer', true) };
+    const dp = {
+      walls: select('Walls and ceiling: how far in?', [['refresh', 'Surface only: patch, paint and trim'], ['repair', 'Open up where fixtures change, then patch'], ['studs', 'Down to the studs: gut and rebuild']], 'repair'),
+      floor: select('Floor: how far down?', [['subfloor', 'Remove the old floor to the subfloor'], ['over', 'Install the new floor over the existing surface'], ['level', 'Remove to the subfloor, then level the floor'], ['replace', 'Cut out the floor and replace the plywood subfloor'], ['replaceLevel', 'Replace the plywood, then level before flooring']], 'subfloor')
+    };
+    const LAZY = ['electricalChanges', 'insulation', 'framing', 'soundproof'];
     const startDate = field('Planned start date (optional)', { type: 'date' });
     const jobType = select('Job type', [['bathroom', 'Bathroom remodel'], ['handyman', 'Handyman / home repair']], 'bathroom');
     const hm = { qty: {}, city: field('City or village of the job', { maxlength: '80', placeholder: 'e.g. Aurora' }), homeYear: field('Year home was built', { type: 'number', inputmode: 'numeric', min: '1800', max: '2100' }), startDate: field('Planned start date (optional)', { type: 'date' }), condo: check('Condo or HOA building') };
-    const handymanBox = el('div', { class: 'd-none' });
+    const handymanBox = el('div');
     const tasksLoaded = api('/api/estimator/handyman/tasks').then(d => {
       handymanBox.append(el('div', { class: 'row' }, ...[hm.city, hm.homeYear, hm.startDate].map(f => el('div', { class: 'col-md-4' }, f.wrap))), hm.condo.wrap);
       for (const cat of d.categories) {
@@ -164,10 +197,37 @@
       }
     });
     const isHandyman = () => jobType.ctl.value === 'handyman';
-    const handymanValues = () => ({ jobType: 'handyman', startDate: hm.startDate.ctl.value, city: hm.city.ctl.value, homeYear: hm.homeYear.ctl.value, condo: hm.condo.ctl.checked, tasks: Object.fromEntries(Object.entries(hm.qty).map(([k, c]) => [k, Number(c.value) || 0]).filter(([, n]) => n > 0)) });
-    const wizardValues = () => isHandyman() ? handymanValues() : ({ startDate: startDate.ctl.value, ...Object.fromEntries(Object.entries(w).map(([k, v]) => [k, v.ctl.value])), ...Object.fromEntries(Object.entries(toggles).map(([k, v]) => [k, v.ctl.checked])) });
-    const advice = el('div', { class: 'small pre-wrap' }), phasesBox = el('div', { class: 'small mt-3' }), preview = el('div', { class: 'fw-bold mb-2' });
+    const lgf = {
+      stairFlights: field('Flights of stairs to the work area (blank = from floor level)', { type: 'number', inputmode: 'numeric', min: '0', max: '10' }),
+      carryFt: field('Carry distance from truck to door (ft)', { type: 'number', inputmode: 'numeric', min: '0', max: '1000', value: '50' }),
+      elevator: check('Building has an elevator (condo or high-rise)'),
+      parking: select('Parking', [['onsite', 'Driveway or lot at the door'], ['street', 'Street parking only']], 'onsite'),
+      supplyMode: select('How supplies get to the site', [['own', 'Our truck'], ['rental', 'Rent a truck or van'], ['supplier', 'Supplier delivers'], ['customer', 'Customer supplies materials']], 'own'),
+      supplyTrips: field('Supply runs (blank = estimate)', { type: 'number', inputmode: 'numeric', min: '0', max: '40' }),
+      debrisMode: select('Demo debris and garbage', [['dumpster', 'We rent a dumpster'], ['haul', 'We haul it away in our truck'], ['junk', 'Junk removal service'], ['customer', 'Customer removes it']], 'dumpster'),
+      cleanupBy: select('Final cleanup', [['us', 'We do the final clean'], ['service', 'Hire a cleaning service'], ['customer', 'Customer cleans']], 'us'),
+      driveMiles: field('Drive to the customer (miles one way)', { type: 'number', inputmode: 'decimal', min: '0', max: '300', value: '15' }),
+      driveMinutes: field('Drive time one way (minutes, blank = estimate)', { type: 'number', inputmode: 'numeric', min: '0', max: '360' }),
+      tollsOneWay: field('Tolls one way ($)', { type: 'number', inputmode: 'decimal', min: '0', max: '100', value: '0' }),
+      siteVisits: field('Pre-job site visits', { type: 'number', inputmode: 'numeric', min: '0', max: '6', value: '1' })
+    };
+    const lgValues = () => Object.fromEntries(Object.entries(lgf).map(([k, f]) => [k, f.ctl.type === 'checkbox' ? f.ctl.checked : f.ctl.value]).filter(([, v]) => v !== ''));
+    const lgBox = el('div', {}, el('p', { class: 'small text-muted', text: 'Stairs, long carries, truck rental, debris, cleanup, driving and tolls are priced and added to the crew hours.' }), el('div', { class: 'row' }, ...Object.values(lgf).map(f => el('div', { class: 'col-md-6' }, f.wrap))));
+    lgBox.addEventListener('input', () => refresh()); lgBox.addEventListener('change', () => refresh());
+    const handymanValues = () => ({ ...lgValues(), jobType: 'handyman', startDate: hm.startDate.ctl.value, city: hm.city.ctl.value, homeYear: hm.homeYear.ctl.value, condo: hm.condo.ctl.checked, tasks: Object.fromEntries(Object.entries(hm.qty).map(([k, c]) => [k, Number(c.value) || 0]).filter(([, n]) => n > 0)) });
+    const wizardValues = () => {
+      if (isHandyman()) return handymanValues();
+      const v = { ...lgValues(), startDate: startDate.ctl.value, ...Object.fromEntries(Object.entries(w).map(([k, f]) => [k, f.ctl.value])), ...Object.fromEntries(Object.entries(toggles).filter(([k, f]) => f.ctl.checked || !LAZY.includes(k)).map(([k, f]) => [k, f.ctl.checked])) };
+      v.drywall = dp.walls.ctl.value !== 'refresh'; v.fullRemodel = dp.walls.ctl.value === 'studs';
+      const fl = dp.floor.ctl.value;
+      if (fl === 'replace' || fl === 'replaceLevel') v.subfloor = true;
+      if (fl === 'level' || fl === 'replaceLevel') v.leveler = true;
+      if (fl === 'over') v.demo = v.demo && dp.walls.ctl.value !== 'refresh';
+      return v;
+    };
+    const advice = el('div', { class: 'small pre-wrap' }), phasesBox = el('div', { class: 'small mt-3' }), processBox = el('div', { class: 'small mt-3' }), preview = el('div', { class: 'est-stats est-stats-2 mb-3' });
     let adviceTimer;
+    const learned = el('p', { class: 'small text-muted' });
     const insightBox = el('div', { class: 'small mt-3' });
     const codeRows = c => [el('h4', { class: 'h6 mt-3', text: `Permits and codes: ${c.city ? c.city.name : 'Illinois'}${c.city && !c.city.verified ? ' (unverified, call the city)' : ''}` }),
       el('p', { class: 'mb-1 fw-bold', text: c.permitNeeded ? `Permits likely needed: ${[...new Set(c.permits.map(p => p.type))].join(', ')}` : c.noPermitNote }),
@@ -184,14 +244,47 @@
         li('Crew by trade (hours)', i.trades.map(t => `${t.trade}: ${t.hours}`)), li('Accessibility and aging in place', i.accessibility), li('Homeowner prep and downtime', [i.downtime.note, ...i.customerPrep]),
         li('Warranty and resale', [...i.warranty, i.resale?.note, i.seasonal].filter(Boolean)), li('Still needed for a tighter estimate', i.completeness.missing), li('Shopping list by section', i.shopping.map(g => `${g.section}: ${g.items.map(x => `${x.name} x${x.qty} ${x.unit}`).join('; ')}`))];
     };
+
+    const advisorBox = el('div', { class: 'small mt-3' }), lastAdvice = { r: null };
+    const advisorRows = a => {
+      const m = usd, d = x => x ? new Date(`${x}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '', li = (t, list, open) => list && list.length ? el('details', { class: 'mb-1', ...(open ? { open: '' } : {}) }, el('summary', { class: 'fw-bold', text: t }), el('ul', { class: 'mb-1' }, list.map(x => el('li', { text: x })))) : null;
+      return [
+        ...(a.conflicts.length ? [el('div', { class: 'est-callout', role: 'alert' }, el('strong', { text: 'Check these before quoting' }), el('ul', { class: 'mb-0' }, a.conflicts.map(c => el('li', { text: `${c.severity === 'high' ? 'Important: ' : ''}${c.text}` }))))] : []),
+        el('h4', { class: 'h6 mt-3', text: 'Advisor' }),
+        el('div', { class: 'est-meter', role: 'img', 'aria-label': `Estimate readiness ${a.readiness.score}%` }, el('span', { class: `est-meter-bar est-w${Math.round(a.readiness.score / 10) * 10}` })),
+        li(`Readiness ${a.readiness.score}%`, a.readiness.sections.map(x => `${x.name}: ${x.answered} of ${x.total} answered${x.missing.length ? ` (missing ${x.missing.join(', ')})` : ''}`)),
+        li(`Hidden-condition allowance ${m(a.hidden.lowCents)} to ${m(a.hidden.highCents)}`, a.hidden.items.map(x => `${x.name}: ${m(x.lowCents)} to ${m(x.highCents)}. ${x.why}`)),
+        li(a.permit.needed ? `Permit: about ${a.permit.reviewDays[0]}-${a.permit.reviewDays[1]} business days, ${m(a.permit.feeCents[0])} to ${m(a.permit.feeCents[1])}` : 'Permit', [a.permit.note]),
+        li('Order by these dates', a.orders.map(o => `${d(o.orderBy)}: ${o.item} (${o.leadDays} business days). ${o.note}`)),
+        li(`Price volatility: ${a.volatility.volatilePct}% of materials; quote valid ${a.volatility.suggestedValidDays} days (now ${a.volatility.currentValidDays})`, [a.volatility.note]),
+        li('Financing examples', [...a.financing.options.map(o => `${o.months} months: ${m(o.monthlyCents)} per month (${m(o.totalCents)} total at ${a.financing.aprPct}% APR)`), a.financing.note]),
+        li(`Walk-away price ${m(a.walkAway.floorCents)}`, [a.walkAway.belowFloor ? 'The current price is BELOW your walk-away price.' : `${m(a.walkAway.headroomCents)} of headroom above your ${a.walkAway.minMarginPct}% minimum margin.`, `Target price at ${a.negotiation.targetMarginPct}% margin: ${m(a.negotiation.targetPriceCents)}. You can discount up to ${m(a.negotiation.maxDiscountCents)} (${a.negotiation.maxDiscountPct}%) and stay on target.`]),
+        li(`True profit after overhead: ${m(a.trueProfit.profitCents)} (${a.trueProfit.profitPct}%)`, [`Overhead at ${a.trueProfit.overheadPct}%: ${m(a.trueProfit.overheadCents)}`, `Cost mix: ${a.mix.laborPct}% labor, ${a.mix.materialPct}% materials (${a.mix.flag}). ${a.mix.note}`]),
+        li(`One lost day costs ${m(a.delay.delayDayCents)}`, [`Crew ${m(a.delay.crewDayCents)} plus overhead ${m(a.delay.overheadDayCents)}.`, a.delay.note]),
+        li(`Season and holidays (${a.season.month} start)`, [...a.season.notes, a.season.holidayNote, ...a.season.holidaysInSchedule.map(h => `${h.name}: ${d(h.date)}`)].filter(Boolean)),
+        a.noBathroom ? li(`No-bathroom plan: about ${a.noBathroom.calendarDays} days`, [a.noBathroom.plan]) : null,
+        a.condo ? li('Condo and HOA checklist', a.condo.items) : null,
+        li('Inspection calendar', a.inspections.map(x => `Book by ${d(x.bookBy)}: ${x.inspection} (${x.phase}, ${d(x.date)})`)),
+        li('Payment schedule', a.payments.map(p => `${d(p.when) || p.when}: ${p.name}, ${m(p.cents)}`)),
+        li('Trade schedule', a.trades.map(t => `${t.trade}: ${d(t.start)} to ${d(t.end)}`)),
+        li(`Contingency ${a.contingency.adequate ? 'is adequate' : `is short by ${m(a.contingency.shortfallCents)}`}`, [`Held ${m(a.contingency.heldCents)}, expected loss ${m(a.contingency.expectedLossCents)}, worst case ${m(a.contingency.exposureCents)}.`, a.contingency.note]),
+        li('Change-order rates (pre-priced)', a.changeRates.map(r => `${r.name}: ${m(r.rateCents)} per ${r.unit}`)),
+        li('Maintenance and warranty calendar', a.maintenance.map(x => `${d(x.date)}: ${x.name}. ${x.note}`)),
+        li('Water and energy savings', [...a.savings.items.map(x => `${x.name}: about $${x.dollarsPerYear} per year`), a.savings.note])
+      ].filter(Boolean);
+    };
     const refresh = () => {
       clearTimeout(adviceTimer);
       adviceTimer = setTimeout(act(async () => {
         const r = await send('/api/estimator/advice', { inputs: wizardValues() });
-        preview.textContent = `Estimated price ${usd(r.totalCents)} (${r.lineCount} lines, ${r.optionalCount} optional upgrades). Crew: ${r.crew} people, about ${r.hours} labor hours over ${r.schedule.days} working days. ${r.contingencyPct}% contingency${r.learnedJobs ? `, learned from ${r.learnedJobs} finished job${r.learnedJobs === 1 ? '' : 's'}` : ''}.`;
+        liveTotal.textContent = `Running estimate: ${usd(r.totalCents)} \u00b7 ${r.hours} labor hrs \u00b7 ${r.schedule.days} working days \u00b7 ${r.advisor.readiness.score}% ready`;
+        preview.replaceChildren(stat('Estimated price', usd(r.totalCents), 'hero'), stat('Labor hours', String(r.hours)), stat('Crew', `${r.crew} ${r.crew === 1 ? 'person' : 'people'}`), stat('Working days', String(r.schedule.days)), stat('Line items', `${r.lineCount} + ${r.optionalCount} optional`), stat('Contingency', `${r.contingencyPct}%`));
+        learned.textContent = r.learnedJobs ? `Learned from ${r.learnedJobs} finished job${r.learnedJobs === 1 ? '' : 's'}.` : '';
         advice.textContent = r.notes.join('\n');
-        insightBox.replaceChildren(...insightRows(r.insights), ...codeRows(r.codes));
-        phasesBox.replaceChildren(...r.schedule.phases.map(p => el('div', { class: 'd-flex justify-content-between gap-2 border-bottom py-1' }, el('span', { text: p.phase }), el('span', { class: 'text-nowrap text-muted', text: p.crew ? `${p.start.slice(5)} \u00b7 ${p.crew} people \u00b7 ${p.hours} hrs` : `${p.start.slice(5)} \u00b7 waiting ${p.days}d` }))));
+        processBox.replaceChildren(...processRows(r.process));
+        lastAdvice.r = r; advisorBox.replaceChildren(...advisorRows(r.advisor));
+        insightBox.replaceChildren(...insightRows(r.insights).filter(Boolean), ...codeRows(r.codes).filter(Boolean));
+        phasesBox.replaceChildren(...r.schedule.phases.map(p => el('div', { class: 'est-phase' }, el('span', { text: p.phase }), el('span', { class: 'text-nowrap text-muted', text: p.crew ? `${p.start.slice(5)} \u00b7 ${p.crew} people \u00b7 ${p.hours} hrs` : `${p.start.slice(5)} \u00b7 waiting ${p.days}d` }))));
       }), 400);
     };
     const pdfBtn = btn('Download results PDF', async () => {
@@ -199,7 +292,7 @@
       if (!res.ok) throw new Error('Could not create the PDF.');
       const url = URL.createObjectURL(await res.blob());
       window.open(url, '_blank', 'noopener'); setTimeout(() => URL.revokeObjectURL(url), 60000);
-    }, 'btn-outline-primary w-100 mt-2');
+    }, 'btn-outline-primary w-100 mt-3');
     let fromVision = false;
     const photos = el('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', multiple: true, class: 'form-control form-control-lg mb-3', 'aria-label': 'Bathroom photos' });
     const consent = check('The customer agreed that these photos may be analyzed by an AI service. Photos are not saved.');
@@ -222,14 +315,102 @@
         findings.textContent = [`Confidence: ${Math.round(r.confidence * 100)}%`, '', 'What I see:', ...r.observations.map(x => `\u2022 ${x}`), '', 'Hidden conditions to confirm on site:', ...r.risks.map(x => `\u2022 ${x}`), '', 'Guessed, please check:', ...r.assumptions.map(x => `\u2022 ${x}`)].join('\n');
       } catch (error) { findings.textContent = ''; throw error; } finally { analyzeBtn.disabled = false; }
     }, 'btn-brass w-100');
-    const wizardFields = el('div', {}, el('div', { class: 'row' }, ...[...Object.values(w), startDate].map(f => el('div', { class: 'col-md-6' }, f.wrap))), ...Object.values(toggles).map(t => t.wrap));
-    wizardFields.addEventListener('input', refresh); wizardFields.addEventListener('change', refresh);
-    handymanBox.addEventListener('input', refresh); handymanBox.addEventListener('change', refresh);
-    jobType.ctl.addEventListener('change', () => {
-      wizardFields.classList.toggle('d-none', isHandyman()); handymanBox.classList.toggle('d-none', !isHandyman());
-      title.ctl.value = isHandyman() ? 'Handyman and home repair' : 'Bathroom remodel'; refresh();
+    const grid = fs => el('div', { class: 'row' }, ...fs.map(f => el('div', { class: 'col-md-6' }, f.wrap)));
+    const tg = (...keys) => keys.map(k => toggles[k].wrap);
+    const note = t => el('p', { class: 'est-hint', text: t });
+    const sect = t => el('h3', { class: 'est-sect', text: t });
+    const ROOMS = [['full', 'Full bathroom', 'Tub or shower, toilet and vanity'], ['master', 'Primary bathroom', 'Larger room, often a double vanity'], ['hall', 'Hall bathroom', 'Tub and shower combo'], ['half', 'Half bath', 'Toilet and sink, no shower'], ['powder', 'Powder room', 'Small guest bath'], ['handyman', 'Other repairs', 'Handyman and home repair tasks']];
+    const roomCards = () => el('div', { class: 'est-choices', role: 'group', 'aria-label': 'Which room' }, ROOMS.map(([v, t, d]) => {
+      const on = v === 'handyman' ? isHandyman() : !isHandyman() && w.bathType.ctl.value === v;
+      return el('button', { type: 'button', class: `est-choice${on ? ' on' : ''}`, 'aria-pressed': on ? 'true' : 'false', onclick: () => {
+        const was = isHandyman();
+        if (v !== 'handyman') w.bathType.ctl.value = v;
+        jobType.ctl.value = v === 'handyman' ? 'handyman' : 'bathroom';
+        if (was !== isHandyman() || v === 'handyman') title.ctl.value = isHandyman() ? 'Handyman and home repair' : `${t} remodel`; else title.ctl.value = `${t} remodel`;
+        renderStep(); refresh();
+      } }, el('strong', { text: t }), el('span', { text: d }));
+    }));
+    const wet = () => !['half', 'powder'].includes(w.bathType.ctl.value);
+    const hasShower = () => wet() && w.shower.ctl.value !== 'none';
+    const stages = {
+      room: () => [roomCards(), el('details', { class: 'est-more' }, el('summary', { text: 'Have photos? Let the AI read the room (optional)' }), note('Take 1 to 4 photos. The AI fills in the questions that follow and flags hidden risks. Always check its answers and measure on site.'), photos, consent.wrap, analyzeBtn, findings)],
+      size: () => [note('Measure the room wall to wall. The estimator uses these for flooring, wall area, paint, demo and debris.'), grid([w.length, w.width, w.ceilingHeight]), w.floorSf.wrap],
+      details: () => [note('Now the other sizes in the room. Leave a box blank and the estimator works it out from the room size.'),
+        ...(hasShower() ? [sect('Shower or tub'), grid([w.showerLength, w.showerWidth, w.wallTileSf])] : []), sect('Walls and openings'), grid([w.windowCount, w.wainscotSf]), ...(wet() ? [sect('Vanity'), grid([w.vanityType, w.vanities])] : [])],
+      updates: () => [note('Choose what is being replaced or upgraded.'), grid([w.tier]), ...(wet() ? [sect('Shower and tub'), grid([w.shower, w.showerStyle, w.glassType, w.tilePattern]), ...tg('niche', 'bench', 'curbless', 'newTub')] : []),
+        sect('Floor and fixtures'), grid([w.flooring, w.toiletMode]), ...tg('heatedFloor', 'fan', 'lighting', 'paint')],
+      depth: () => [note('How far into the room do we have to go? This decides demolition, framing and what has to be rebuilt before the finish work.'), dp.walls.wrap, dp.floor.wrap, w.ceilingWork.wrap, grid([w.level, w.condition]), w.homeYear.wrap,
+        el('p', { class: 'est-callout', text: 'Tip: choose "level" when the floor is out of flat before tile or vinyl, and "cut out and replace the plywood" when it is soft, stained or water damaged.' })],
+      extras: () => [note('Everything else needed to finish the job. Pick whatever applies; the estimator adds the labor, materials, tool rental and cure times.'), sect('Prep and structure'), ...tg('framing', 'insulation', 'soundproof'), sect('Plumbing and electrical'), ...tg('plumbingChanges', 'electricalChanges'), sect('Paperwork and options'), ...tg('permit', 'suggestUpgrades')],
+      site: () => [note('Where is the job and how does the crew get to it?'), w.city.wrap, startDate.wrap, lgBox],
+      customer: () => [title.wrap, picked, search.wrap, el('div', { class: 'list-group mb-3' }, customerResults), el('details', { class: 'est-more' }, el('summary', { text: 'Or add a new customer' }), ...Object.values(nc).map(f => f.wrap)), note('You can also skip this and attach a customer later.')],
+      tasks: () => [note('Enter a quantity for each task that applies. Open a group to see its tasks.'), handymanBox],
+      access: () => [lgBox],
+      review: () => [resultsCard, el('div', { class: 'est-card est-final' }, quick.wrap, create)]
+    };
+    const stepDefs = () => isHandyman() ? [
+      ['Room', 'Which room is the work in?', 'room'], ['Tasks', 'Which repairs does the job include?', 'tasks'], ['Site', 'How will the crew get to and work at the site?', 'access'], ['Customer', 'Who is this estimate for?', 'customer'], ['Review', 'Review your estimate', 'review']
+    ] : [
+      ['Room', 'Which room are we working on?', 'room'], ['Size', 'How big is the room?', 'size'], ['Details', 'What are the other sizes in the room?', 'details'], ['Updates', 'What are we updating?', 'updates'], ['How far in', 'How far in do we have to go?', 'depth'],
+      ['Prep', 'What else is needed to finish the job?', 'extras'], ['Site', 'Where is the job and how do we get there?', 'site'], ['Customer', 'Who is this estimate for?', 'customer'], ['Review', 'Review your estimate', 'review']
+    ];
+    let cur = 0;
+    const WHY = { room: 'the room type sets the standard scope, fixtures and prices.', size: 'size drives flooring, wall area, paint, demolition and debris.', details: 'fixture and opening sizes change tile, glass and framing quantities.', updates: 'what you replace is most of the material cost.', depth: 'how far in we go decides demolition, framing and rebuild work.', extras: 'hidden prep like leveling or subfloor repair is where estimates usually go wrong.', site: 'access, distance and start date set travel, parking, carry and schedule.', customer: 'we attach the estimate to a customer so it can be sent and signed.' };
+    const prog = el('ol', { class: 'est-steps', 'aria-label': 'Estimate steps' }), stage = el('div', { class: 'est-stage' }), nav = el('div', { class: 'est-nav' }), liveTotal = el('div', { class: 'est-live', role: 'status' });
+    stage.addEventListener('input', () => refresh()); stage.addEventListener('change', e => { refresh(); if (e.target === w.shower.ctl || e.target === w.bathType.ctl) renderStep(); });
+    const go = i => { cur = i; renderStep(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+    function renderStep() {
+      const defs = stepDefs(); cur = Math.max(0, Math.min(cur, defs.length - 1));
+      const [name, question, key] = defs[cur], last = cur === defs.length - 1;
+      prog.replaceChildren(...defs.map(([n], i) => el('li', {}, el('button', { type: 'button', class: `est-step${i === cur ? ' active' : i < cur ? ' done' : ''}`, ...(i === cur ? { 'aria-current': 'step' } : {}), onclick: () => go(i) },
+        el('span', { class: 'est-step-n', text: i < cur ? '\u2713' : String(i + 1) }), el('span', { class: 'est-step-t', text: n })))));
+      const head = [el('p', { class: 'est-kicker', text: `Step ${cur + 1} of ${defs.length}` }), el('h2', { class: 'est-q', text: question })];
+      stage.replaceChildren(el('div', { class: key === 'review' ? '' : 'est-card' }, ...head, ...(WHY[key] ? [el('p', { class: 'est-why', text: `Why we ask: ${WHY[key]}` })] : []), ...stages[key](), ...(key === 'review' ? [reviewTools()] : [])));
+      if (cur === 0) stage.prepend(drafted);
+      if (key === 'size' || key === 'details') stage.prepend(warnBox);
+      nav.replaceChildren(cur > 0 ? el('button', { type: 'button', class: 'btn btn-outline-secondary btn-lg', text: '\u2190 Back', onclick: () => go(cur - 1) }) : el('span'), last ? el('span') : el('button', { type: 'button', class: 'btn btn-primary btn-lg', text: `Next: ${defs[cur + 1][0]} \u2192`, onclick: () => go(cur + 1) }));
+      liveTotal.classList.toggle('d-none', last); nav.classList.toggle('est-nav-static', last);
+    }
+    // Draft, warnings, compare, copy, print
+    const DRAFT = 'bbs-estimate-draft', draftCtl = { ...Object.fromEntries(Object.entries(w).map(([k, v]) => [`w.${k}`, v.ctl])), ...Object.fromEntries(Object.entries(toggles).map(([k, v]) => [`t.${k}`, v.ctl])), ...Object.fromEntries(Object.entries(dp).map(([k, v]) => [`d.${k}`, v.ctl])), title: title.ctl, start: startDate.ctl };
+    const saveDraft = () => { try { localStorage.setItem(DRAFT, JSON.stringify({ at: Date.now(), cur, v: Object.fromEntries(Object.entries(draftCtl).map(([k, c]) => [k, c.type === 'checkbox' ? c.checked : c.value])) })); } catch { /* storage unavailable */ } };
+    const warnBox = el('div', { class: 'est-warns', role: 'status' }), drafted = el('div', { class: 'est-callout d-none' });
+    const warnings = () => {
+      const n = k => Number(w[k].ctl.value), out = [], L = n('length'), W = n('width'), H = n('ceilingHeight');
+      if (L && W && (L > 40 || W > 40 || L < 3 || W < 3)) out.push(`A bathroom of ${L} by ${W} ft is unusual. Check the units (feet, not inches).`);
+      if (H && (H < 6.5 || H > 14)) out.push(`A ${H} ft ceiling is unusual. Typical is 8 to 9 ft.`);
+      if (L && W && w.floorSf.ctl.value && Math.abs(n('floorSf') - L * W) / (L * W) > 0.35) out.push(`Floor area ${n('floorSf')} sq ft differs a lot from ${L} x ${W} = ${Math.round(L * W)} sq ft.`);
+      if (L && W && w.showerLength.ctl.value && w.showerWidth.ctl.value && n('showerLength') * n('showerWidth') > L * W * 0.7) out.push('The shower takes up most of the room. Check its size.');
+      if (n('windowCount') > 5) out.push('More than 5 windows in a bathroom is unusual.');
+      return out;
+    };
+    const showWarn = () => warnBox.replaceChildren(...warnings().map(t => el('p', { class: 'est-warn', text: `Check: ${t}` })));
+    const reset = () => { try { localStorage.removeItem(DRAFT); } catch { /* ignore */ } location.reload(); };
+    try {
+      const d = JSON.parse(localStorage.getItem(DRAFT) || 'null');
+      if (d && d.v && Date.now() - d.at < 7 * 864e5) {
+        for (const [k, v] of Object.entries(d.v)) { const c = draftCtl[k]; if (c) { if (c.type === 'checkbox') c.checked = !!v; else c.value = v; } }
+        cur = Math.min(d.cur || 0, 3);
+        drafted.classList.remove('d-none'); drafted.append(`Resumed your draft from ${new Date(d.at).toLocaleString()}. `, el('button', { type: 'button', class: 'btn btn-sm btn-outline-secondary', text: 'Start over', onclick: reset }));
+      }
+    } catch { /* bad draft */ }
+    stage.addEventListener('input', () => { saveDraft(); showWarn(); }); stage.addEventListener('change', saveDraft);
+    stage.addEventListener('keydown', e => {
+      if (e.key !== 'Enter' || e.target.tagName !== 'INPUT' || e.target.type === 'checkbox' || cur >= stepDefs().length - 1) return;
+      e.preventDefault(); go(cur + 1);
     });
-    refresh();
+    const pins = [];
+    const summaryText = r => [`${title.ctl.value || 'Bathroom remodel'}`, `Estimated price: ${usd(r.totalCents)} (deposit ${usd(r.depositCents)})`, `Timeline: about ${r.schedule.days} working days${r.schedule.endDate ? `, finishing around ${r.schedule.endDate}` : ''}`, `Crew: ${r.crew}`, '', ...r.advisor.payments.map(p => `${p.name}: ${usd(p.cents)}`), '', 'Estimate is valid for 30 days. Hidden damage found when walls are opened is handled by written change order.'].join('\n');
+    const reviewTools = () => {
+      const r = lastAdvice.r, note2 = el('span', { class: 'small text-muted', role: 'status' }), cmp = el('div', { class: 'mt-3' });
+      const drawPins = () => cmp.replaceChildren(...(pins.length ? [el('table', { class: 'table table-sm est-compare' }, el('thead', {}, el('tr', {}, ['Scenario', 'Price', 'Days', 'Crew', 'Profit'].map(h => el('th', { text: h })))), el('tbody', {}, pins.map(x => el('tr', {}, [x.label, usd(x.total), String(x.days), String(x.crew), usd(x.profit)].map(t => el('td', { text: t }))))))] : []));
+      return el('div', { class: 'est-card est-tools' }, el('h3', { class: 'est-card-title', text: 'Share and compare' }), el('div', { class: 'd-flex flex-wrap gap-2 align-items-center' },
+        btn('Copy customer summary', async () => { if (!lastAdvice.r) return; await navigator.clipboard.writeText(summaryText(lastAdvice.r)); note2.textContent = 'Copied.'; }, 'btn-outline-primary'),
+        btn('Print this page', async () => { window.print(); }, 'btn-outline-secondary'),
+        btn('Pin to compare', async () => { const x = lastAdvice.r || r; if (!x) return; if (pins.length >= 4) pins.shift(); pins.push({ label: `${w.tier.ctl.selectedOptions[0].text} #${pins.length + 1}`, total: x.totalCents, days: x.schedule.days, crew: x.crew, profit: x.advisor.trueProfit.profitCents }); drawPins(); note2.textContent = 'Pinned. Go back, change an answer, and pin again.'; }, 'btn-outline-secondary'), note2), cmp);
+    };
+    handymanBox.addEventListener('input', refresh); handymanBox.addEventListener('change', refresh);
+    refresh(); showWarn();
     const quick = check('Pre-fill line items with the quick estimator', true);
     const create = btn('Create estimate', async () => {
       const body = { title: title.ctl.value };
@@ -237,9 +418,10 @@
       if (quick.ctl.checked) body.wizard = wizardValues(); if (fromVision) body.vision = true;
       const { id } = await send('/api/estimator/estimates', body);
       location.hash = `#e/${id}`;
-    }, 'btn-brass btn-lg w-100');
-    page('new', card('Customer', picked, search.wrap, el('div', { class: 'list-group mb-3' }, results), el('details', {}, el('summary', { class: 'mb-2', text: 'Or add a new customer' }), ...Object.values(nc).map(f => f.wrap))),
-      card('Job', jobType.wrap, title.wrap), card('Photo estimate (AI)', el('p', { class: 'small text-muted', text: 'Take 1 to 4 photos of the bathroom. The AI reads the room, fills in the questions below and flags hidden risks. Always check its answers and measure on site.' }), photos, consent.wrap, analyzeBtn, findings), card('Smart estimator', quick.wrap, wizardFields, handymanBox), card('What the estimator did', preview, advice, el('h4', { class: 'h6 mt-3', text: 'Crew and hours by phase' }), phasesBox, insightBox, pdfBtn), create);
+    }, 'btn-primary btn-lg w-100');
+    const resultsCard = card('Your estimate', preview, learned, advice, el('h4', { class: 'est-sub-title', text: 'Crew and hours by phase' }), phasesBox, processBox, advisorBox, insightBox, pdfBtn);
+    renderStep();
+    page('new', prog, liveTotal, stage, nav);
   }
 
   // ---------- Estimate editor
@@ -320,10 +502,11 @@
       return el('details', { class: 'card card-body mb-3', ontoggle: async ev => { if (ev.target.open && !loaded) { loaded = true; try { await draw(); } catch (err) { loaded = false; body.textContent = err.message; } } } }, el('summary', { class: 'h6', text: 'Tools needed for this job' }), body);
     })();
     const outcomeCard = admin && ['accepted', 'sent'].includes(e.status) ? (() => {
-      const actual = field('What the job really cost you ($): materials, labor, subs, rentals', { type: 'number', inputmode: 'decimal', min: '0', step: '0.01' }), hours = field('Total labor hours', { type: 'number', inputmode: 'decimal', min: '0', step: '0.5', value: '0' }), notes = field('What surprised you?', { maxlength: 1000 }, 'textarea');
+      const actual = field('What the job really cost you ($): materials, labor, subs, rentals', { type: 'number', inputmode: 'decimal', min: '0', step: '0.01' }), hours = field(data.crew ? 'Total labor hours (GPS-tracked time is filled in)' : 'Total labor hours', { type: 'number', inputmode: 'decimal', min: '0', step: '0.5', value: String(data.crew?.trackedHours || 0) }), notes = field('What surprised you?', { maxlength: 1000 }, 'textarea');
       const per = sections.filter(sec => lines.some(l => l.section === sec && !l.optional)).map(sec => ({ sec, f: field(`${sec}: actual cost ($, optional)`, { type: 'number', inputmode: 'decimal', min: '0', step: '0.01' }) }));
       return el('details', { class: 'card card-body mb-3' }, el('summary', { class: 'h6', text: 'Teach the AI estimator: record real job costs' }),
         el('p', { class: 'small text-muted mt-2', text: 'After the job, enter what it really cost. The estimator compares this with its own prediction and gets more accurate on similar jobs. Section costs are optional but make it learn faster.' }),
+        data.crew ? crewBlock(data.crew) : el('p', { class: 'small text-muted', text: 'No clocked-in crew time is linked to this job yet. Link the estimate to a job and have employees clock in on it to record who did the work.' }),
         actual.wrap, hours.wrap, el('div', { class: 'row' }, ...per.map(x => el('div', { class: 'col-md-6' }, x.f.wrap))), notes.wrap,
         btn('Save actual results', async () => { const r = await send(`${base}/outcome`, { actualCost: Number(actual.ctl.value), actualHours: Number(hours.ctl.value), notes: notes.ctl.value, sections: per.map(x => ({ section: x.sec, cost: x.f.ctl.value })) }); notice('success', `Saved. The estimator has now learned from ${r.learnedJobs} finished job${r.learnedJobs === 1 ? '' : 's'}.`); }, 'btn-primary'));
     })() : null;
@@ -350,12 +533,38 @@
         el('p', { class: 'small text-muted mt-2 mb-0', text: 'Templates are general starting points. Have an attorney review them for your state.' }));
     }
 
+    // Permits (admin edits, staff view)
+    const pBase = `${base}/permits`, permits = data.permits || [], pm_ = data.permitMeta || { types: [], statuses: {}, results: {} };
+    const permitRow = x => {
+      const status = select('Status', Object.entries(pm_.statuses), x.status), num = field('Permit number', { maxlength: 60, value: x.number }), fee = field('Fee ($)', { type: 'number', inputmode: 'decimal', min: '0', step: '0.01', value: x.feeCents ? String(x.feeCents / 100) : '' });
+      const applied = field('Applied on', { type: 'date', value: x.appliedOn }), issued = field('Issued on', { type: 'date', value: x.issuedOn }), expires = field('Expires on', { type: 'date', value: x.expiresOn });
+      const cnote = field('Note shown to the customer', { maxlength: 500, value: x.customerNote }), inote = field('Internal note', { maxlength: 1000, value: x.internalNote || '' });
+      const insName = field('Add inspection', { maxlength: 120, placeholder: 'e.g. Rough plumbing' }), insDate = field('Scheduled for', { type: 'date' });
+      return el('details', { class: 'border rounded p-2 mb-2' },
+        el('summary', { class: 'fw-bold', text: `${x.type}${x.number ? ` #${x.number}` : ''} \u00b7 ${x.statusLabel}${x.city ? ` \u00b7 ${x.city}` : ''}` }),
+        el('p', { class: 'small text-muted mt-2 mb-2', text: `${x.description || 'No description'}. City review usually takes ${x.reviewDays[0]} to ${x.reviewDays[1]} business days.` }),
+        ...x.inspections.map(i => el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-2 border-bottom py-1' }, el('span', { text: `${i.name}${i.scheduledOn ? ` \u00b7 ${day(i.scheduledOn)}` : ''}` }),
+          el('span', { class: 'd-flex gap-1' }, ...Object.entries(pm_.results).map(([k, v]) => btn(v, async () => { await send(`${pBase}/${x.id}/inspections/${i.id}`, { result: k }); await refresh(); }, k === i.result ? 'btn-sm btn-dark' : 'btn-sm btn-outline-dark')), btn('Remove', async () => { await send(`${pBase}/${x.id}/inspections/${i.id}/delete`); await refresh(); }, 'btn-sm btn-outline-danger')))),
+        el('div', { class: 'row mt-2' }, ...[insName, insDate].map(f => el('div', { class: 'col-md-6' }, f.wrap))),
+        btn('Add inspection', async () => { await send(`${pBase}/${x.id}/inspections`, { name: insName.ctl.value, scheduledOn: insDate.ctl.value }); await refresh(); }),
+        el('div', { class: 'row mt-3' }, ...[status, num, fee, applied, issued, expires, cnote, inote].map(f => el('div', { class: 'col-md-6' }, f.wrap))),
+        el('div', { class: 'd-flex gap-2' }, btn('Save permit', async () => { await send(`${pBase}/${x.id}`, { status: status.ctl.value, number: num.ctl.value, fee: fee.ctl.value, appliedOn: applied.ctl.value, issuedOn: issued.ctl.value, expiresOn: expires.ctl.value, customerNote: cnote.ctl.value, internalNote: inote.ctl.value }); notice('success', 'Permit saved.'); await refresh(); }, 'btn-primary'),
+          btn('Delete', async () => { if (confirm('Delete this permit record?')) { await send(`${pBase}/${x.id}/delete`); await refresh(); } }, 'btn-outline-danger')));
+    };
+    let permitsCard = null;
+    if (e.status !== 'void') {
+      const pType = select('Permit type', pm_.types.map(t => [t, t]), pm_.types[0]), pCity = field('City or village', { maxlength: 80, placeholder: 'e.g. Aurora' }), pDesc = field('What it covers', { maxlength: 300, placeholder: 'e.g. Replace tub and move drain' });
+      permitsCard = card('Permits and inspections', permits.length ? permits.map(admin ? permitRow : (x => el('p', { class: 'mb-1', text: `${x.type}: ${x.statusLabel}${x.number ? ` #${x.number}` : ''}` }))) : el('p', { class: 'text-muted', text: 'No permits tracked yet. Use the permit guidance in the quick estimator to see what this job needs.' }),
+        admin ? el('div', { class: 'mt-3' }, el('div', { class: 'row' }, ...[pType, pCity, pDesc].map(f => el('div', { class: 'col-md-4' }, f.wrap))), btn('Track a permit', async () => { await send(pBase, { type: pType.ctl.value, city: pCity.ctl.value, description: pDesc.ctl.value }); await refresh(); }, 'btn-primary')) : null,
+        el('p', { class: 'small text-muted mt-2 mb-0', text: 'Customers see the permit status, number, dates and inspections (not internal notes) in their account.' }));
+    }
+
     page('list', el('p', {}, el('a', { href: '#list', text: '\u2190 All estimates' })),
       el('div', { class: 'd-flex flex-wrap justify-content-between gap-2 mb-2' }, el('h2', { class: 'h4 mb-0', text: `${e.number} \u00b7 ${e.title}` }), badge(e.status)),
       el('p', { class: 'text-muted', text: `${data.customer ? `${data.customer.name}${data.customer.phone ? ` \u00b7 ${data.customer.phone}` : ''}${data.customer.address ? ` \u00b7 ${data.customer.address}` : ''}` : 'No customer attached'}${e.signedAt ? ` \u00b7 signed ${day(e.signedAt)}` : ''}` }),
       e.status === 'accepted' ? el('div', { class: 'alert alert-info', text: 'This estimate is signed and locked. Use a change order for scope changes.' }) : null,
       !data.customer && editable ? customerAttach(base, refresh) : null,
-      totalsCard, ...(secCards.length ? secCards : [el('p', { class: 'text-muted', text: 'No line items yet. Add some below or re-run the quick estimator.' })]), adders, regen, toolsCard, outcomeCard, detailsCard, paymentsCard, docsCard,
+      totalsCard, ...(secCards.length ? secCards : [el('p', { class: 'text-muted', text: 'No line items yet. Add some below or re-run the quick estimator.' })]), adders, regen, permitsCard, toolsCard, outcomeCard, detailsCard, paymentsCard, docsCard,
       el('div', { class: 'd-flex flex-wrap gap-2 mb-4' }, ...flow));
   }
 
@@ -384,6 +593,9 @@
       card('Add a custom task', name.wrap, cat.wrap, unit.wrap, nh.wrap, nm.wrap, btn('Add task', async () => { await send('/api/estimator/handyman/tasks', { name: name.ctl.value, category: cat.ctl.value, unit: unit.ctl.value, hrs: nh.ctl.value, mat: nm.ctl.value }); await tasks(); }, 'btn-brass')));
   }
 
+  const crewBlock = c => el('div', { class: 'border rounded p-2 mb-3 small' }, el('strong', { text: `Crew on this job (GPS-tracked): ${c.trackedHours} hrs, ${c.crewSize} ${c.crewSize === 1 ? 'person' : 'people'}, ${c.workDays} work day${c.workDays === 1 ? '' : 's'} (${c.firstDay} to ${c.lastDay})` }),
+    ...c.employees.map(p => el('div', { text: `${p.name}${p.role ? ` (${p.role})` : ''}: ${p.hours} hrs over ${p.days.length} day${p.days.length === 1 ? '' : 's'}: ${p.days.join(', ')}` })));
+
   async function learning() {
     const d = await api('/api/estimator/learning');
     const pctText = v => (v === null ? 'n/a' : `${v}%`);
@@ -394,7 +606,11 @@
         rows.length ? el('ul', {}, ...rows) : el('p', { class: 'text-muted small', text: 'Section corrections appear after at least two jobs record section costs.' }),
         el('p', { class: 'small text-muted', text: 'Open a signed estimate and use "Teach the AI estimator" after the job is done. Corrections are limited to -25% and +40% so one odd job cannot throw it off.' })),
       card('Photo estimating', el('p', { class: d.aiPhotos ? 'text-success' : 'text-muted', text: d.aiPhotos ? 'AI photo analysis is on. Use it on the New estimate page.' : 'AI photo analysis is off. Set AI_API_KEY on the server to turn it on.' })),
-      card('Recent finished jobs', ...(d.recent.length ? d.recent.map(r => el('div', { class: 'border-bottom py-2 small' }, el('a', { href: `#e/${r.estimateId}`, text: `Estimate #${r.estimateId}` }), el('div', { text: `Base estimate ${usd(r.baseCostCents)} \u00b7 predicted ${usd(r.predictedCostCents)} \u00b7 actual ${usd(r.actualCostCents)} \u00b7 ${r.actualHours} hrs` }), r.notes ? el('div', { class: 'text-muted', text: r.notes }) : null)) : [el('p', { class: 'text-muted', text: 'No finished jobs recorded yet.' })])));
+      card('What the crew reports from the field', el('p', { class: 'small', text: `${d.field.reports} daily check-ins on ${d.field.jobs} jobs; ${d.field.delayed} behind schedule, ${d.field.blocked} blocked, ${d.field.withProblems} with problems; ${d.field.media} photos and videos stored.` }),
+        ...(d.field.liabilities.length ? d.field.liabilities.map(l => el('div', { class: 'small', text: `Liability records, ${l.type.replace(/_/g, ' ')}: ${l.count} (${l.consented} with homeowner consent)` })) : [el('p', { class: 'small text-muted', text: 'No liability records yet.' })]),
+        ...d.field.recentProblems.map(r => el('div', { class: 'small border-top py-1', text: `${r.date} ${r.title}: ${r.problems}` }))),
+      card('Who did the work (from GPS time clock)', ...(d.crew.length ? d.crew.map(p => el('div', { class: 'border-bottom py-2 small', text: `${p.name}: ${p.jobs} finished job${p.jobs === 1 ? '' : 's'}, ${p.hours} hrs, last worked ${p.lastDay || 'n/a'} (${Object.entries(p.jobTypes).map(([k, v]) => `${k} x${v}`).join(', ')})` })) : [el('p', { class: 'text-muted small mb-0', text: 'Crew data appears once employees clock in on jobs and you record the job results.' })])),
+      card('Recent finished jobs', ...(d.recent.length ? d.recent.map(r => el('div', { class: 'border-bottom py-2 small' }, el('a', { href: `#e/${r.estimateId}`, text: `Estimate #${r.estimateId}` }), el('div', { text: `Base estimate ${usd(r.baseCostCents)} \u00b7 predicted ${usd(r.predictedCostCents)} \u00b7 actual ${usd(r.actualCostCents)} \u00b7 ${r.actualHours} hrs` }), r.crew ? el('div', { text: `Crew: ${r.crew.employees.map(p => `${p.name} ${p.hours}h`).join(', ')} \u00b7 ${r.crew.firstDay} to ${r.crew.lastDay}` }) : null, r.notes ? el('div', { class: 'text-muted', text: r.notes }) : null)) : [el('p', { class: 'text-muted', text: 'No finished jobs recorded yet.' })])));
   }
 
   // ---------- Price book (admin)
@@ -422,7 +638,7 @@
   // ---------- Defaults (admin)
   async function defaults() {
     const { settings } = await api('/api/estimator/bootstrap');
-    const f = { markup_pct: field('Default markup %', { type: 'number', step: '0.1', min: '0', value: settings.markup_pct }), tax_pct: field('Sales tax % on materials', { type: 'number', step: '0.01', min: '0', value: settings.tax_pct }), contingency_pct: field('Contingency %', { type: 'number', step: '0.1', min: '0', value: settings.contingency_pct }), deposit_pct: field('Deposit %', { type: 'number', step: '1', min: '0', value: settings.deposit_pct }), region_factor_pct: field('Local labor rate factor % (100 = price book)', { type: 'number', step: '1', min: '50', max: '200', value: settings.region_factor_pct || '100' }), handyman_rate: field('Handyman rate ($/hr)', { type: 'number', step: '1', min: '20', max: '400', value: settings.handyman_rate || '75' }), licensed_rate: field('Licensed plumber/electrician rate ($/hr)', { type: 'number', step: '1', min: '40', max: '500', value: settings.licensed_rate || '125' }), handyman_min_hours: field('Minimum service visit (hours)', { type: 'number', step: '0.5', min: '0', max: '8', value: settings.handyman_min_hours || '2' }), weekend_premium_pct: field('Saturday premium % (when Saturday work is on)', { type: 'number', step: '1', min: '0', max: '100', value: settings.weekend_premium_pct || '0' }), work_start: field('Work day starts (24-hour)', { type: 'time', value: settings.work_start || '08:00' }), work_end: field('Work day ends (24-hour)', { type: 'time', value: settings.work_end || '16:30' }), lunch_min: field('Unpaid lunch (minutes)', { type: 'number', step: '5', min: '0', value: settings.lunch_min || '30' }), break_min: field('Paid breaks per day (minutes)', { type: 'number', step: '5', min: '0', value: settings.break_min || '30' }), work_saturday: select('Weekend work', [['0', 'Monday to Friday only'], ['1', 'Include Saturdays']], settings.work_saturday || '0'), valid_days: field('Estimate valid for (days)', { type: 'number', step: '1', min: '1', value: settings.valid_days }), exclusions: field('Standard exclusions', { rows: 4 }, 'textarea'), terms: field('Standard terms', { rows: 6 }, 'textarea') };
+    const f = { overhead_pct: field('Overhead % (advisor)', { type: 'number', step: '0.1', min: '0', value: settings.overhead_pct }), target_margin_pct: field('Target margin % (advisor)', { type: 'number', step: '0.1', min: '0', value: settings.target_margin_pct }), min_margin_pct: field('Minimum margin % / walk-away (advisor)', { type: 'number', step: '0.1', min: '0', value: settings.min_margin_pct }), finance_apr: field('Financing example APR %', { type: 'number', step: '0.01', min: '0', value: settings.finance_apr }), water_cost_per_1000gal: field('Water and sewer $ per 1,000 gal', { type: 'number', step: '0.01', min: '0', value: settings.water_cost_per_1000gal }), kwh_cost: field('Electricity $ per kWh', { type: 'number', step: '0.01', min: '0', value: settings.kwh_cost }), markup_pct: field('Default markup %', { type: 'number', step: '0.1', min: '0', value: settings.markup_pct }), tax_pct: field('Sales tax % on materials', { type: 'number', step: '0.01', min: '0', value: settings.tax_pct }), contingency_pct: field('Contingency %', { type: 'number', step: '0.1', min: '0', value: settings.contingency_pct }), deposit_pct: field('Deposit %', { type: 'number', step: '1', min: '0', value: settings.deposit_pct }), region_factor_pct: field('Local labor rate factor % (100 = price book)', { type: 'number', step: '1', min: '50', max: '200', value: settings.region_factor_pct || '100' }), handyman_rate: field('Handyman rate ($/hr)', { type: 'number', step: '1', min: '20', max: '400', value: settings.handyman_rate || '75' }), licensed_rate: field('Licensed plumber/electrician rate ($/hr)', { type: 'number', step: '1', min: '40', max: '500', value: settings.licensed_rate || '125' }), handyman_min_hours: field('Minimum service visit (hours)', { type: 'number', step: '0.5', min: '0', max: '8', value: settings.handyman_min_hours || '2' }), weekend_premium_pct: field('Saturday premium % (when Saturday work is on)', { type: 'number', step: '1', min: '0', max: '100', value: settings.weekend_premium_pct || '0' }), work_start: field('Work day starts (24-hour)', { type: 'time', value: settings.work_start || '08:00' }), work_end: field('Work day ends (24-hour)', { type: 'time', value: settings.work_end || '16:30' }), lunch_min: field('Unpaid lunch (minutes)', { type: 'number', step: '5', min: '0', value: settings.lunch_min || '30' }), break_min: field('Paid breaks per day (minutes)', { type: 'number', step: '5', min: '0', value: settings.break_min || '30' }), work_saturday: select('Weekend work', [['0', 'Monday to Friday only'], ['1', 'Include Saturdays']], settings.work_saturday || '0'), valid_days: field('Estimate valid for (days)', { type: 'number', step: '1', min: '1', value: settings.valid_days }), exclusions: field('Standard exclusions', { rows: 4 }, 'textarea'), terms: field('Standard terms', { rows: 6 }, 'textarea') };
     f.exclusions.ctl.value = settings.exclusions || ''; f.terms.ctl.value = settings.terms || '';
     page('settings', card('Defaults for new estimates', ...Object.values(f).map(x => x.wrap), btn('Save defaults', async () => { await send('/api/estimator/settings', Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.ctl.value]))); boot_ = await api('/api/estimator/bootstrap'); notice('success', 'Saved. New estimates use these values.'); }, 'btn-primary')));
   }

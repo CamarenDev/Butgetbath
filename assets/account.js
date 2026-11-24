@@ -48,7 +48,7 @@
   const stat = (label, value, tone) => el('div', { class: 'col-6 col-lg-3' }, el('div', { class: `stat-tile tone-${tone}` }, el('div', { class: 'n', text: String(value) }), el('div', { class: 'l', text: label })));
   const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm';
   const field = (label, value) => value ? el('p', { class: 'mb-2' }, el('strong', { text: `${label}: ` }), document.createTextNode(value)) : '';
-  const requireUser = async () => { try { return (await api('/api/auth/me')).user; } catch (e) { if (e.status === 401) { location.replace('/account/login/'); return null; } throw e; } };
+  const requireUser = async () => { try { const u = (await api('/api/auth/me')).user; window.bbsI18n?.adopt(u.lang); return u; } catch (e) { if (e.status === 401) { location.replace('/account/login/'); return null; } throw e; } };
 
   async function logout() { await postJson('/api/auth/logout', {}); location.assign('/account/login/'); }
 
@@ -149,6 +149,7 @@
       upcoming.length > 1 ? el('div', { class: 'mb-4' }, el('h2', { class: 'h5', text: 'More upcoming appointments' }), ...upcoming.slice(1).map(a => el('div', {}, el('a', { class: 'small', href: `/account/request/?id=${a.requestId}`, text: a.requestTitle }), appointmentCard(a, { staff: user.admin })))) : '',
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-2 mb-3' }, el('h2', { class: 'h4 mb-0', text: 'Your project requests' }), el('div', { class: 'd-flex flex-wrap gap-2' }, search, filters)),
       estBox, list, docsBox,
+      el('div', { class: 'mt-4', 'data-lang-switch': '' }),
       el('div', { class: 'form-check form-switch mt-4' }, el('input', { class: 'form-check-input', type: 'checkbox', role: 'switch', id: 'notify-pref', ...(user.notifyEmail ? { checked: '' } : {}) }), el('label', { class: 'form-check-label', for: 'notify-pref', text: 'Email me when our team replies or updates a request' })));
     const pref = box.querySelector('#notify-pref');
     pref.addEventListener('change', () => postJson('/api/auth/preferences', { notifyEmail: pref.checked }).catch(() => { pref.checked = !pref.checked; }));
@@ -508,6 +509,11 @@
         e.status === 'accepted' ? el('div', { class: 'card card-body mb-3' }, el('h3', { class: 'h5', text: 'Payments' }), el('p', { class: 'mb-2', text: `Signed by ${e.signedName} on ${date(e.signedAt)}. Paid ${usd(t.paidCents)}. Balance ${usd(t.balanceCents)}.` }),
           ...e.payments.map(p => el('div', { class: 'small text-muted', text: `${date(p.paidOn)} \u00b7 ${usd(p.amountCents)} \u00b7 ${p.method}` })),
           t.balanceCents > 0 ? el('div', { class: 'mt-3' }, e.payEnabled ? [t.depositDueCents > 0 ? payButton('deposit', `Pay deposit ${usd(t.depositDueCents)}`) : '', payButton('balance', `Pay full balance ${usd(t.balanceCents)}`)] : el('p', { class: 'small text-muted mb-0', text: 'To pay by check, cash or card, please contact us. Online payment is coming soon.' })) : '') : '',
+        (e.permits || []).length ? el('div', { class: 'card card-body mb-3' }, el('h3', { class: 'h5', text: 'Permits and inspections' }),
+          ...e.permits.map(x => el('div', { class: 'border-bottom py-2' }, el('strong', { text: `${x.type} permit${x.number ? ` #${x.number}` : ''}: ${x.statusLabel}` }),
+            el('div', { class: 'small text-muted', text: [x.description, x.appliedOn && `Applied ${date(x.appliedOn)}`, x.issuedOn && `Issued ${date(x.issuedOn)}`, x.expiresOn && `Expires ${date(x.expiresOn)}`, x.status === 'needed' || x.status === 'applied' ? `City review usually takes ${x.reviewDays[0]} to ${x.reviewDays[1]} business days` : ''].filter(Boolean).join(' \u00b7 ') }),
+            x.customerNote ? el('div', { class: 'small', text: x.customerNote }) : '',
+            ...x.inspections.map(i => el('div', { class: 'small', text: `Inspection: ${i.name}${i.scheduledOn ? ` on ${date(i.scheduledOn)}` : ''} \u2014 ${i.resultLabel}` }))))) : '',
         docs.length ? el('div', {}, el('h3', { class: 'h5', text: 'Legal documents' }), ...docs) : '',
         el('div', { class: 'mt-3 d-flex flex-wrap gap-2' }, el('a', { class: 'btn btn-outline-dark btn-sm', href: `/api/account/estimates/${id}/pdf`, target: '_blank', rel: 'noopener', text: 'Download estimate PDF' })), note);
     };
