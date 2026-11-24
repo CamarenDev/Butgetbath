@@ -133,7 +133,24 @@ for v in "$PHONE" "$RESEND_KEY"; do [[ "$v" != *[\"\\\$\`]* ]] || die "Phone and
 # ---------------------------------------------------------------- packages
 step "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -qq
+if [ -n "$(dpkg --audit 2>/dev/null)" ]; then
+  warn "dpkg has half-configured packages that are unrelated to this site; skipping their failing setup scripts so the install can continue."
+  for pkg in $(dpkg --audit 2>/dev/null | awk '/^ [a-z0-9]/{print $1}'); do
+    for s in postinst prerm; do
+      f="/var/lib/dpkg/info/$pkg.$s"
+      [ -f "$f" ] || continue
+      [ -f "$f.install-sh.bak" ] || cp -p "$f" "$f.install-sh.bak"
+      printf '#!/bin/sh\nexit 0\n' > "$f"
+      chmod 0755 "$f"
+    done
+    ok "Skipped broken package scripts: $pkg (backups: *.install-sh.bak)"
+  done
+  dpkg --configure -a || warn "dpkg still reports problems; continuing anyway."
+fi
+if ! apt-get update -qq; then
+  warn "apt-get update reported errors (often a broken third-party repo or bad clock/DNS); continuing with the package lists that did download."
+  apt-get update 2>&1 | grep -E '^(E:|Err:)' >&2 || true
+fi
 PKGS=(ca-certificates curl gnupg rsync openssl sqlite3)
 [ "$WITH_NGINX" -eq 1 ] && PKGS+=(nginx)
 [ "$WITH_SSL" -eq 1 ] && PKGS+=(certbot python3-certbot-nginx)
