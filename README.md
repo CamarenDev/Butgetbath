@@ -128,3 +128,7 @@ English is the default. The language switcher is in the site footer, the account
 ## Permit tracking
 
 Each estimate has a **Permits and inspections** card (admin edits, estimators view): permit type, city, status (needed, applied, issued, inspections, final approved, not required), number, fee, dates, customer and internal notes, and inspections with results. Customers see permits (without internal notes) and inspection results under the estimate in their account, and get an email when a permit is issued or finalized. A failed inspection alerts the office. Turnaround you record feeds the estimator's permit-time forecast. API: `/api/estimator/estimates/:id/permits`.
+
+## Tool photos
+
+Admin → **Tool photos** lists every tool and supply on the crew checklist (`lib/tools.js`). For each one the admin uploads a JPG, PNG or WebP (3 MB max) with a credit and optional source address; quick links open Home Depot, Google Images and Wikimedia Commons searches to find one. The photos appear as thumbnails next to each item on the estimator's "Tools needed" list and the employee portal's "Tools checklist" (tap to enlarge). Photos are only served to admins and active employees. Only upload photos you took or have the right to use. The app cannot download photos itself because the server has no outside access, so the library starts empty.

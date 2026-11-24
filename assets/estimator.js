@@ -494,9 +494,10 @@
       const body = el('div', { class: 'mt-2' });
       let loaded = false;
       const draw = async () => {
+        if (window.BBSTools) await BBSTools.load();
         const d = await api(`${base}/tools`);
         body.replaceChildren(el('p', { class: 'small text-muted', text: d.jobId ? 'This list is on the crew job page. Employees tick items off as they pack the truck.' : 'Create the job after the customer signs and this list goes to the crew automatically.' }),
-          ...[...new Set(d.tools.map(t => t.group))].map(g => el('div', { class: 'mb-2' }, el('strong', { text: g }), el('ul', { class: 'mb-0 small' }, d.tools.filter(t => t.group === g).map(t => el('li', { text: `${t.name}${t.qty > 1 ? ` x${t.qty}` : ''} (${d.labels[t.src]})${t.note ? `: ${t.note}` : ''}` }))))),
+          ...[...new Set(d.tools.map(t => t.group))].map(g => el('div', { class: 'mb-2' }, el('strong', { text: g }), el('ul', { class: 'mb-0 small list-unstyled' }, d.tools.filter(t => t.group === g).map(t => el('li', { class: 'mb-1' }, window.BBSTools && BBSTools.thumb(t.name), `${t.name}${t.qty > 1 ? ` x${t.qty}` : ''} (${d.labels[t.src]})${t.note ? `: ${t.note}` : ''}`))))),
           admin && d.jobId ? btn('Update the crew list from this estimate', async () => { await send(`${base}/tools`, {}); await draw(); }) : null);
       };
       return el('details', { class: 'card card-body mb-3', ontoggle: async ev => { if (ev.target.open && !loaded) { loaded = true; try { await draw(); } catch (err) { loaded = false; body.textContent = err.message; } } } }, el('summary', { class: 'h6', text: 'Tools needed for this job' }), body);

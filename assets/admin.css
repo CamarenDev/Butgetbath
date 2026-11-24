@@ -58,3 +58,7 @@ td[data-heat="4"] { background: rgba(124, 92, 255, 0.8); color: #fff; }
 .admin-top{min-width:0}
 .admin-top h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #admin-user{min-width:0;max-width:38vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Tool photo library */
+.tool-photo { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid #d7dcdc; background: #f4f1ea; }
+.tool-photo-empty { width: 96px; height: 96px; border-radius: 8px; border: 2px dashed #c4cbca; display: flex; align-items: center; justify-content: center; font-size: .75rem; color: #6b7775; text-align: center; padding: .25rem; flex: none; }

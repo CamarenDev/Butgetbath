@@ -37,13 +37,13 @@
   const badge = (text, cls = 'secondary') => el('span', { class: `badge text-bg-${cls}`, text });
 
   const SECTIONS = [
-    ['dashboard', 'Dashboard', '\u25A6'], ['customers', 'Customers', '\u2616'], ['employees', 'Employees', '\u2692'], ['live', 'Live now', '\u25C9'], ['location', 'Location', '\u25CE'], ['jobs', 'Jobs', '\u2302'], ['estimator', 'Estimator', '\u2630'], ['company', 'Company', '\u25A4'], ['accounting', 'Accounting', '\u0024'], ['zoho', 'Zoho Books', '\u21C5'], ['seo', 'SEO files', '\u2315'], ['security', 'Security log', '\u26E8'], ['holidays', 'Holiday sales', '\u2744'], ['hr', 'HR', '\u270E'], ['knowledge', 'Knowledge base', '\u2139'], ['contacts', 'Contacts', '\u2709'], ['support', 'Support', '\u260E'], ['forum', 'Forum', '\u2756'],
+    ['dashboard', 'Dashboard', '\u25A6'], ['customers', 'Customers', '\u2616'], ['employees', 'Employees', '\u2692'], ['live', 'Live now', '\u25C9'], ['toolphotos', 'Tool photos', '\u2692'], ['location', 'Location', '\u25CE'], ['jobs', 'Jobs', '\u2302'], ['estimator', 'Estimator', '\u2630'], ['company', 'Company', '\u25A4'], ['accounting', 'Accounting', '\u0024'], ['zoho', 'Zoho Books', '\u21C5'], ['seo', 'SEO files', '\u2315'], ['security', 'Security log', '\u26E8'], ['holidays', 'Holiday sales', '\u2744'], ['hr', 'HR', '\u270E'], ['knowledge', 'Knowledge base', '\u2139'], ['contacts', 'Contacts', '\u2709'], ['support', 'Support', '\u260E'], ['forum', 'Forum', '\u2756'],
     ['reviews', 'Reviews', '\u2605'], ['projects', 'Projects', '\u25A3'], ['images', 'Images', '\u25A8'], ['visitors', 'Visitors', '\u2197'], ['users', 'Users', '\u263A'], ['settings', 'Settings', '\u2699']
   ];
   let badges = {};
   const GROUPS = [
     ['Overview', ['dashboard', 'company', 'visitors']],
-    ['Work', ['customers', 'jobs', 'estimator', 'employees', 'live', 'location']],
+    ['Work', ['customers', 'jobs', 'estimator', 'employees', 'live', 'toolphotos', 'location']],
     ['Money', ['accounting', 'zoho', 'holidays']],
     ['Inbox', ['contacts', 'support', 'hr']],
     ['Website', ['projects', 'images', 'reviews', 'forum', 'knowledge', 'seo']],
@@ -640,6 +640,38 @@
     renderNav('live');
   };
 
+  // ---------- Tool photo library
+  const toolPhotos = async () => {
+    const box = el('div'), search = input('Search tools', { placeholder: 'e.g. wet tile saw, respirator' });
+    view.replaceChildren(box);
+    let tools = (await api('/api/tools/library')).tools;
+    const draw = () => {
+      const term = search.ctl.value.trim().toLowerCase(), shown = tools.filter(t => !term || `${t.name} ${t.group}`.toLowerCase().includes(term));
+      const have = tools.filter(t => t.photo).length;
+      const card = t => {
+        const file = el('input', { type: 'file', class: 'form-control form-control-sm', accept: 'image/jpeg,image/png,image/webp', 'aria-label': `Photo for ${t.name}` });
+        const credit = el('input', { class: 'form-control form-control-sm', maxlength: 200, placeholder: 'Photo credit (who or where from)', value: t.credit, 'aria-label': 'Photo credit' });
+        const source = el('input', { class: 'form-control form-control-sm', maxlength: 400, placeholder: 'Source web address (optional)', value: t.sourceUrl, 'aria-label': 'Source web address' });
+        const q = encodeURIComponent(t.name);
+        return el('div', { class: 'panel mb-3' }, el('div', { class: 'd-flex gap-3 flex-wrap' },
+          t.photo ? el('a', { href: `/api/tools/photo/${t.key}?v=${t.v}`, target: '_blank', rel: 'noopener' }, el('img', { class: 'tool-photo', src: `/api/tools/photo/${t.key}?v=${t.v}`, alt: t.name, loading: 'lazy', width: 96, height: 96 })) : el('div', { class: 'tool-photo-empty', text: 'No photo yet' }),
+          el('div', { class: 'flex-grow-1' }, el('div', { class: 'fw-bold', text: t.name }), el('div', { class: 'small text-muted', text: `${t.group} \u00b7 ${t.src === 'rent' ? 'rental' : t.src === 'ppe' ? 'safety gear' : t.src === 'supply' ? 'supply' : 'company tool'}` }),
+            el('div', { class: 'small mt-1' }, 'Find a photo: ', el('a', { href: `https://www.homedepot.com/s/${q}`, target: '_blank', rel: 'noopener noreferrer', text: 'Home Depot' }), ' \u00b7 ', el('a', { href: `https://www.google.com/search?tbm=isch&q=${q}`, target: '_blank', rel: 'noopener noreferrer', text: 'Google Images' }), ' \u00b7 ', el('a', { href: `https://commons.wikimedia.org/w/index.php?search=${q}&ns6=1`, target: '_blank', rel: 'noopener noreferrer', text: 'Wikimedia (free to use)' })),
+            el('div', { class: 'row g-2 mt-1' }, el('div', { class: 'col-md-4' }, file), el('div', { class: 'col-md-4' }, credit), el('div', { class: 'col-md-4' }, source)),
+            el('div', { class: 'mt-2 d-flex gap-2' }, btn(t.photo ? 'Replace photo' : 'Upload photo', async () => {
+              const f = file.files[0]; if (!f) return toast('Choose a photo first.', 'danger');
+              tools = (await api(`/api/admin/tools/photo/${t.key}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Credit': encodeURIComponent(credit.value), 'X-Source-Url': encodeURIComponent(source.value.trim()) }, body: f })).tools;
+              toast('Photo saved'); draw();
+            }, 'btn-primary'), t.photo ? btn('Remove', async () => { if (!confirm('Remove this photo?')) return; tools = (await send(`/api/admin/tools/photo/${t.key}/delete`, 'POST')).tools; draw(); }, 'btn-outline-danger') : null))));
+      };
+      box.replaceChildren(el('p', { class: 'text-muted' }, `${have} of ${tools.length} tools have a reference photo. Crew see these next to each item on their tools checklist so they know exactly what to pack. Use photos you took yourself or that you have the right to use, and record the credit.`),
+        el('div', { class: 'mb-3' }, search.wrap), shown.length ? shown.map(card) : empty('Nothing matches.'));
+    };
+    search.ctl.addEventListener('input', draw);
+    draw();
+    renderNav('toolphotos');
+  };
+
   // ---------- Accounting, taxes and legal paperwork
   let acctYear = new Date().getFullYear();
   const accounting = async () => {
@@ -860,7 +892,7 @@
     );
   };
 
-  const routes = { dashboard, customers, employees, live: livePage, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
+  const routes = { dashboard, customers, employees, live: livePage, toolphotos: toolPhotos, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
   async function route() {
     const key = location.hash.slice(1).split('/')[0], id = routes[key] ? key : 'dashboard';
     $('#admin-title').textContent = SECTIONS.find(s => s[0] === id)[1];
