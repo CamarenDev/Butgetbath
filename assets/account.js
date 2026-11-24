@@ -64,17 +64,33 @@
     else postJson('/api/auth/verify', { token }).then(r => show(status, 'success', r.message), e => show(status, 'danger', e.message));
   }
 
+  const KIND_LABELS = { in_home: 'In-home estimate', phone: 'Phone call', video: 'Video call' };
+  const fullWhen = a => new Date(a.startsAt).toLocaleString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+  // datetime-local values are wall-clock times in the browser's zone; Date converts them to a UTC instant for the API.
+  const toLocalInput = iso => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+  const appointmentCard = (a, { staff, onCancel, onEdit }) => el('div', { class: `card card-body p-3 mb-2${a.status === 'cancelled' ? ' opacity-50' : ''}` },
+    el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('strong', { text: fullWhen(a) }), a.status === 'cancelled' ? el('span', { class: 'badge text-bg-secondary', text: 'Cancelled' }) : el('span', { class: 'badge text-bg-success', text: 'Scheduled' })),
+    el('div', { class: 'small text-muted', text: `${a.kindLabel} \u00b7 ${a.durationMin} minutes${a.location ? ` \u00b7 ${a.location}` : ''}${staff ? ` \u00b7 ${a.customerName}` : ''}` }),
+    a.notes ? el('p', { class: 'small mb-0 mt-2 pre-wrap', text: a.notes }) : '',
+    a.status === 'scheduled' ? el('div', { class: 'd-flex flex-wrap gap-2 mt-3' },
+      el('a', { class: 'btn btn-sm btn-outline-dark', href: a.googleUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Add to Google Calendar' }),
+      el('a', { class: 'btn btn-sm btn-outline-dark', href: a.icsPath, text: 'Apple / Outlook (.ics)' }),
+      onEdit ? el('button', { class: 'btn btn-sm btn-outline-dark', type: 'button', 'data-edit': a.id, text: 'Reschedule' }) : '',
+      onCancel ? el('button', { class: 'btn btn-sm btn-outline-danger', type: 'button', 'data-cancel': a.id, text: 'Cancel appointment' }) : '') : '');
+
   async function dashboard() {
     const user = await requireUser();
     if (!user) return;
     const box = document.getElementById('account-root');
     const { requests } = await api('/api/requests');
+    const upcoming = (await api('/api/appointments').catch(() => ({ appointments: [] }))).appointments;
     box.className = '';
     box.replaceChildren(
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-3 mb-4' },
         el('div', {}, el('h2', { class: 'h3 mb-0', text: `Hi, ${user.name}` }), el('span', { class: 'text-muted', text: user.email })),
         el('div', { class: 'd-flex gap-2' }, user.admin ? el('a', { class: 'btn btn-outline-dark', href: '/account/admin/', text: 'Customer requests' }) : '', el('button', { class: 'btn btn-outline-dark', type: 'button', 'data-logout': '', text: 'Sign out' }))),
       user.verified ? '' : el('div', { class: 'alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2' }, el('span', { text: 'Please confirm your email to send project requests. Check your inbox for our message.' }), el('button', { class: 'btn btn-sm btn-dark', type: 'button', 'data-resend': '', text: 'Resend email' })),
+      upcoming.length ? el('div', { class: 'mb-4' }, el('h2', { class: 'h4', text: user.admin ? 'Upcoming appointments' : 'Your upcoming appointments' }), ...upcoming.map(a => el('div', {}, el('a', { class: 'small', href: `/account/request/?id=${a.requestId}`, text: a.requestTitle }), appointmentCard(a, { staff: user.admin })))) : '',
       el('div', { class: 'd-flex justify-content-between align-items-center mb-3' }, el('h2', { class: 'h4 mb-0', text: 'Your project requests' }), user.verified ? el('a', { class: 'btn btn-brass', href: '/account/new/', text: 'New request' }) : ''),
       requests.length ? el('div', { class: 'list-group' }, ...requests.map(r => el('a', { class: 'list-group-item list-group-item-action p-3', href: `/account/request/?id=${r.id}` }, el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('strong', { text: `${r.title}  #${r.id}` }), el('span', { class: 'd-flex gap-2' }, r.unread ? el('span', { class: 'badge text-bg-danger', text: 'New reply' }) : '', statusBadge(r.status, r.statusLabel))), el('div', { class: 'text-muted small mt-1', text: `${r.projectType} \u00b7 ${r.location} \u00b7 ${r.photoCount} photo${r.photoCount === 1 ? '' : 's'} \u00b7 ${r.messageCount} message${r.messageCount === 1 ? '' : 's'} \u00b7 ${date(r.lastMessageAt || r.createdAt)}` })))) : el('div', { class: 'card card-body p-4 text-center' }, el('p', { class: 'mb-0', text: 'No requests yet. Start one and tell us what you are looking for.' })),
       el('div', { class: 'form-check form-switch mt-4' }, el('input', { class: 'form-check-input', type: 'checkbox', role: 'switch', id: 'notify-pref', ...(user.notifyEmail ? { checked: '' } : {}) }), el('label', { class: 'form-check-label', for: 'notify-pref', text: 'Email me when our team replies or updates a request' })));
@@ -159,6 +175,59 @@
       field('Type', request.projectType), field('County', request.location), field('Timeline', request.timeline), field('Budget', request.budget), field('Created', date(request.createdAt)),
       el('p', { class: 'mt-3 mb-0 pre-wrap', text: request.description }),
       request.photos.length ? el('div', {}, el('h3', { class: 'h6 mt-4 mb-0', text: `Photos with the request (${request.photos.length})` }), photoGrid(request.photos)) : '');
+
+    // Appointments: staff schedule, everyone can add them to a calendar, customers can cancel
+    let appointments = request.status === 'draft' ? [] : (await api(`/api/requests/${id}/appointments`).catch(() => ({ appointments: [] }))).appointments;
+    const apptList = el('div', {});
+    const apptStatus = el('div', { class: 'form-status mt-3', role: 'status', 'aria-live': 'polite' });
+    const apptForm = staff ? el('form', { class: 'row g-2 mt-2', novalidate: '' },
+      el('div', { class: 'col-md-4' }, el('label', { class: 'form-label small', for: 'appt-when', text: 'Date and time' }), el('input', { class: 'form-control', id: 'appt-when', type: 'datetime-local', required: '' })),
+      el('div', { class: 'col-md-2' }, el('label', { class: 'form-label small', for: 'appt-len', text: 'Minutes' }), el('input', { class: 'form-control', id: 'appt-len', type: 'number', min: '15', max: '480', step: '15', value: '60' })),
+      el('div', { class: 'col-md-3' }, el('label', { class: 'form-label small', for: 'appt-kind', text: 'Type' }), el('select', { class: 'form-select', id: 'appt-kind' }, ...Object.entries(KIND_LABELS).map(([v, l]) => el('option', { value: v, text: l })))),
+      el('div', { class: 'col-md-3' }, el('label', { class: 'form-label small', for: 'appt-where', text: 'Address / link / phone' }), el('input', { class: 'form-control', id: 'appt-where', maxlength: '300' })),
+      el('div', { class: 'col-12' }, el('label', { class: 'form-label small', for: 'appt-notes', text: 'Notes for the customer (optional)' }), el('input', { class: 'form-control', id: 'appt-notes', maxlength: '1000' })),
+      el('div', { class: 'col-12 d-flex gap-2' }, el('button', { class: 'btn btn-brass', type: 'submit', text: 'Schedule and email confirmation' }), el('button', { class: 'btn btn-outline-dark d-none', type: 'button', 'data-reset': '', text: 'Cancel edit' }))) : null;
+    let editing = null;
+    const apptField = key => apptForm.querySelector(`#appt-${key}`);
+    const renderAppointments = () => {
+      apptList.replaceChildren(...(appointments.length ? appointments.map(a => appointmentCard(a, { staff: false, onEdit: staff, onCancel: true })) : [el('p', { class: 'text-muted small mb-0', text: staff ? 'No appointments yet.' : 'No appointments scheduled yet. Message us to find a time.' })]));
+    };
+    renderAppointments();
+    const resetForm = () => { editing = null; apptForm.reset(); apptField('len').value = '60'; apptForm.querySelector('button[type=submit]').textContent = 'Schedule and email confirmation'; apptForm.querySelector('[data-reset]').classList.add('d-none'); };
+    apptList.addEventListener('click', async event => {
+      const cancelId = event.target.dataset.cancel, editId = event.target.dataset.edit;
+      try {
+        if (cancelId && confirm('Cancel this appointment? A cancellation email will be sent.')) {
+          await postJson(`/api/appointments/${cancelId}/cancel`, {});
+          appointments = (await api(`/api/requests/${id}/appointments`)).appointments;
+          renderAppointments();
+          show(apptStatus, 'success', 'Appointment cancelled.');
+        } else if (editId) {
+          const a = appointments.find(x => x.id === Number(editId));
+          editing = a.id;
+          apptField('when').value = toLocalInput(a.startsAt); apptField('len').value = a.durationMin; apptField('kind').value = a.kind; apptField('where').value = a.location; apptField('notes').value = a.notes;
+          apptForm.querySelector('button[type=submit]').textContent = 'Save and email the update';
+          apptForm.querySelector('[data-reset]').classList.remove('d-none');
+          apptField('when').focus();
+        }
+      } catch (e) { show(apptStatus, 'danger', e.message); }
+    });
+    if (apptForm) {
+      apptForm.querySelector('[data-reset]').addEventListener('click', resetForm);
+      apptForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const when = apptField('when').value;
+        if (!when) return show(apptStatus, 'warning', 'Choose a date and time.');
+        try {
+          await postJson(editing ? `/api/appointments/${editing}/reschedule` : `/api/requests/${id}/appointments`, { startsAt: new Date(when).toISOString(), durationMin: Number(apptField('len').value), kind: apptField('kind').value, location: apptField('where').value, notes: apptField('notes').value });
+          appointments = (await api(`/api/requests/${id}/appointments`)).appointments;
+          renderAppointments();
+          resetForm();
+          show(apptStatus, 'success', 'Saved. The customer was emailed a confirmation with a calendar invite.');
+        } catch (e) { show(apptStatus, 'danger', e.message); }
+      });
+    }
+    const apptPanel = request.status === 'draft' ? '' : el('div', { class: 'card card-body p-4 mb-4' }, el('h3', { class: 'h5', text: 'Appointments' }), apptList, apptForm || '', apptStatus);
 
     async function refresh() {
       request = (await api(`/api/requests/${id}`)).request;
@@ -246,7 +315,7 @@
     box.replaceChildren(
       el('p', {}, el('a', { href: staff ? '/account/admin/' : '/account/', text: staff ? '\u2190 All customer requests' : '\u2190 Back to my account' })),
       params.get('sent') ? el('div', { class: 'alert alert-success', text: 'Thank you! We received your request and emailed you a confirmation. We will reply here and by email.' }) : '',
-      details, staffBar, request.status === 'draft' ? draftPanel : el('div', {}, el('h3', { class: 'h5', text: 'Conversation' }), thread, composer));
+      details, staffBar, apptPanel, request.status === 'draft' ? draftPanel : el('div', {}, el('h3', { class: 'h5', text: 'Conversation' }), thread, composer));
 
     // Pick up replies without a manual reload.
     if (request.status !== 'draft') setInterval(async () => {
@@ -274,7 +343,12 @@
       bar.addEventListener('click', event => { if (event.target.dataset.filter) { filter = event.target.dataset.filter; render(); } });
       render();
       box.className = '';
-      box.replaceChildren(el('p', {}, el('a', { href: '/account/', text: '\u2190 Back to my account' })), bar, list);
+      const cal = await api('/api/calendar/info');
+      const feed = el('input', { class: 'form-control form-control-sm', readonly: '', value: cal.feedUrl, 'aria-label': 'Calendar subscription URL' });
+      feed.addEventListener('focus', () => feed.select());
+      const calendarCard = el('div', { class: 'card card-body p-3 mb-4' }, el('strong', { text: 'Subscribe to all appointments' }),
+        el('p', { class: 'small text-muted mb-2', text: `Add this private URL to Apple Calendar, Outlook or Google Calendar ("From URL"). Keep it secret.${cal.googleSync ? ' New appointments are also pushed to the business Google Calendar.' : ''}` }), feed);
+      box.replaceChildren(el('p', {}, el('a', { href: '/account/', text: '\u2190 Back to my account' })), calendarCard, bar, list);
     } catch (e) { show(box, 'danger', e.status === 403 ? 'Your account does not have staff access.' : e.message); }
   }
 
