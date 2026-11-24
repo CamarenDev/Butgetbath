@@ -23,6 +23,7 @@
   const STATUS_COLORS = { draft: 'secondary', submitted: 'primary', in_progress: 'info', awaiting_customer: 'warning', resolved: 'success', closed: 'secondary' };
   const STAFF_LABELS = { submitted: 'Open', in_progress: 'In progress', awaiting_customer: 'Awaiting customer', resolved: 'Resolved', closed: 'Closed' };
   const statusBadge = (status, label, staff) => el('span', { class: `badge text-bg-${STATUS_COLORS[status] || 'secondary'}`, text: status === 'draft' ? 'Draft (not sent yet)' : (staff && STAFF_LABELS[status]) || label });
+  const usd = c => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const dateTime = value => value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const photoGrid = photos => el('div', { class: 'row g-3 mt-1' }, ...photos.map(p => el('figure', { class: 'col-6 col-md-4 mb-0 media-item' },
     p.kind === 'video'
@@ -123,6 +124,20 @@
     search.addEventListener('input', () => { query = search.value.trim().toLowerCase(); renderList(); });
     renderList();
     const next = upcoming[0];
+    const estBox = el('div', { class: 'mb-4' });
+    api('/api/account/estimates').then(({ estimates }) => {
+      if (!estimates.length) return;
+      estBox.append(el('h2', { class: 'h4', text: 'Your estimates' }), ...estimates.map(e => el('a', { class: 'request-card', href: `/account/estimate/?id=${e.id}` },
+        el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('strong', { text: e.title }), el('span', { class: `badge text-bg-${e.status === 'accepted' ? 'success' : e.status === 'sent' ? 'primary' : 'secondary'}`, text: e.status === 'sent' ? 'Needs your review' : e.status === 'accepted' ? (e.balanceCents <= 0 ? 'Signed & paid' : 'Signed') : 'Declined' })),
+        el('div', { class: 'text-muted small mt-1', text: `${e.number} \u00b7 ${usd(e.totalCents)}${e.status === 'accepted' && e.balanceCents > 0 ? ` \u00b7 ${usd(e.balanceCents)} due` : ''}` }))));
+    }).catch(() => {});
+    const docsBox = el('div', { class: 'mt-4' });
+    api('/api/account/documents').then(({ files, entries }) => {
+      if (!files.length && !entries.length) return;
+      docsBox.append(el('h2', { class: 'h4', text: 'Documents & messages from our team' }),
+        ...files.map(f => el('div', { class: 'py-1' }, el('a', { href: `/api/account/documents/${f.id}`, target: '_blank', rel: 'noopener noreferrer', text: f.title || f.name }), el('span', { class: 'text-muted small', text: ` \u00b7 ${f.category} \u00b7 ${new Date(f.createdAt).toLocaleDateString()}` }))),
+        ...entries.map(e => el('div', { class: 'border-top py-2' }, el('div', { class: 'text-muted small', text: `${e.kind} \u00b7 ${new Date(e.createdAt).toLocaleDateString()}` }), e.subject ? el('strong', { text: e.subject }) : '', el('div', { class: 'pre-wrap', text: e.body }))));
+    }).catch(() => {});
     box.className = '';
     box.replaceChildren(
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-3 mb-4' },
@@ -133,7 +148,7 @@
       next ? el('div', { class: 'next-visit mb-4' }, el('div', {}, el('p', { class: 'eyebrow dark mb-1', text: 'Your next appointment' }), el('h2', { class: 'h5 mb-1', text: fullWhen(next) }), el('span', { class: 'text-muted small', text: `${next.kindLabel} \u00b7 ${next.durationMin} minutes${next.location ? ` \u00b7 ${next.location}` : ''}` })), el('div', { class: 'd-flex flex-wrap gap-2' }, el('a', { class: 'btn btn-sm btn-outline-dark', href: next.googleUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Google Calendar' }), el('a', { class: 'btn btn-sm btn-outline-dark', href: next.icsPath, text: 'Apple / Outlook' }), el('a', { class: 'btn btn-sm btn-dark', href: `/account/request/?id=${next.requestId}`, text: 'View request' }))) : '',
       upcoming.length > 1 ? el('div', { class: 'mb-4' }, el('h2', { class: 'h5', text: 'More upcoming appointments' }), ...upcoming.slice(1).map(a => el('div', {}, el('a', { class: 'small', href: `/account/request/?id=${a.requestId}`, text: a.requestTitle }), appointmentCard(a, { staff: user.admin })))) : '',
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-2 mb-3' }, el('h2', { class: 'h4 mb-0', text: 'Your project requests' }), el('div', { class: 'd-flex flex-wrap gap-2' }, search, filters)),
-      list,
+      estBox, list, docsBox,
       el('div', { class: 'form-check form-switch mt-4' }, el('input', { class: 'form-check-input', type: 'checkbox', role: 'switch', id: 'notify-pref', ...(user.notifyEmail ? { checked: '' } : {}) }), el('label', { class: 'form-check-label', for: 'notify-pref', text: 'Email me when our team replies or updates a request' })));
     const pref = box.querySelector('#notify-pref');
     pref.addEventListener('change', () => postJson('/api/auth/preferences', { notifyEmail: pref.checked }).catch(() => { pref.checked = !pref.checked; }));
@@ -435,6 +450,70 @@
     } catch (e) { show(box, 'danger', e.status === 403 ? 'Your account does not have staff access.' : e.message); }
   }
 
-  const run = { dashboard, new: newRequest, request: requestDetail, admin }[page];
+  async function estimateDetail() {
+    const user = await requireUser();
+    if (!user) return;
+    const box = document.getElementById('account-root');
+    const id = Number(params.get('id'));
+    const load = async () => (await api(`/api/account/estimates/${id}`)).estimate;
+    const row = (label, value, strong) => el('div', { class: `d-flex justify-content-between py-1${strong ? ' fw-bold fs-5 border-top mt-1 pt-2' : ''}` }, el('span', { text: label }), el('span', { text: value }));
+    const field = (label, props = {}) => {
+      const fid = `f${Math.random().toString(36).slice(2, 8)}`;
+      const input = el('input', { class: 'form-control', id: fid, ...props });
+      return { input, wrap: el('div', { class: 'mb-3' }, el('label', { class: 'form-label', for: fid, text: label }), input) };
+    };
+    const render = async e => {
+      const note = el('div', { class: 'mt-3', role: 'status', 'aria-live': 'polite' });
+      const act = fn => async () => { try { await fn(); } catch (error) { show(note, 'danger', error.message); } };
+      const t = e.totals, optionBoxes = new Map();
+      const live = () => {
+        const extra = e.items.filter(i => i.optional && optionBoxes.get(i.id)?.checked).reduce((a, i) => a + i.priceCents, 0);
+        return t.totalCents + extra;
+      };
+      const itemRows = e.items.filter(i => !i.optional).map(i => el('tr', {}, el('td', { text: i.name }), el('td', { class: 'text-end text-nowrap', text: `${i.qty} ${i.unit}` }), el('td', { class: 'text-end text-nowrap', text: usd(i.priceCents) })));
+      const sectionRows = e.sections ? e.sections.map(s => el('tr', {}, el('td', { text: s.name }), el('td', {}), el('td', { class: 'text-end', text: usd(s.totalCents) }))) : [];
+      const optionRows = e.items.filter(i => i.optional).map(i => {
+        const cb = el('input', { class: 'form-check-input me-2', type: 'checkbox', id: `opt${i.id}`, ...(i.accepted ? { checked: '' } : {}), ...(e.status === 'sent' ? {} : { disabled: '' }) });
+        optionBoxes.set(i.id, cb);
+        return el('div', { class: 'form-check d-flex justify-content-between border-top py-2' }, el('span', {}, cb, el('label', { class: 'form-check-label', for: `opt${i.id}`, text: `${i.name} (optional)` })), el('span', { text: `+ ${usd(i.priceCents)}` }));
+      });
+      const docs = e.documents.map(d => {
+        const name = field('Type your full name to sign'), agree = el('input', { class: 'form-check-input', type: 'checkbox', id: `da${d.id}` });
+        return el('details', { class: 'card card-body mb-2', ...(d.status === 'pending' ? { open: '' } : {}) },
+          el('summary', {}, el('strong', { text: d.title }), ' ', el('span', { class: `badge text-bg-${d.status === 'signed' ? 'success' : 'warning'}`, text: d.status === 'signed' ? `Signed ${date(d.signedAt)}` : 'Needs your signature' })),
+          el('div', { class: 'pre-wrap border rounded p-3 my-3', text: d.body }), el('p', {}, el('a', { href: `/api/account/estimates/${id}/documents/${d.id}/pdf`, target: '_blank', rel: 'noopener', text: 'Download PDF' })),
+          d.status === 'pending' ? el('div', {}, name.wrap, el('div', { class: 'form-check mb-3' }, agree, el('label', { class: 'form-check-label', for: `da${d.id}`, text: 'I have read and agree. Typing my name is my electronic signature.' })),
+            Object.assign(el('button', { class: 'btn btn-brass', type: 'button', text: 'Sign document' }), { onclick: act(async () => { await render((await postJson(`/api/account/estimates/${id}/documents/${d.id}/sign`, { name: name.input.value, agree: agree.checked })).estimate); }) }), el('p', { class: 'small text-muted mt-2 mb-0', text: e.consent || '' })) : el('div', { class: 'small text-muted', text: `Signed by ${d.signedName}` }));
+      });
+      const signName = field('Type your full name to accept this estimate'), signAgree = el('input', { class: 'form-check-input', type: 'checkbox', id: 'sign-agree' });
+      const totalLine = row('Total', usd(t.totalCents), true);
+      for (const cb of optionBoxes.values()) cb.addEventListener('change', () => { totalLine.lastChild.textContent = usd(live()); });
+      const payButton = (kind, label) => Object.assign(el('button', { class: 'btn btn-brass me-2 mb-2', type: 'button', text: label }), { onclick: act(async () => { const { url } = await postJson(`/api/account/estimates/${id}/pay`, { kind }); location.href = url; }) });
+      const decline = field('Reason (optional)');
+      box.className = '';
+      box.replaceChildren(el('p', {}, el('a', { href: '/account/', text: '\u2190 Back to my account' })),
+        params.get('paid') ? el('div', { class: 'alert alert-success', text: 'Thank you! Your payment is being confirmed and will appear below in a moment.' }) : '',
+        el('div', { class: 'card card-body mb-3' }, el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('h2', { class: 'h4 mb-0', text: e.title }), el('span', { class: `badge align-self-start text-bg-${e.status === 'accepted' ? 'success' : e.status === 'sent' ? 'primary' : 'secondary'}`, text: e.status === 'sent' ? 'Awaiting your approval' : e.status === 'accepted' ? 'Accepted' : 'Declined' })),
+          el('div', { class: 'text-muted small', text: `${e.number}${e.validUntil && e.status === 'sent' ? ` \u00b7 valid until ${date(e.validUntil)}` : ''}` }), e.scope ? el('p', { class: 'pre-wrap mt-3 mb-0', text: e.scope }) : ''),
+        el('div', { class: 'card card-body mb-3' }, el('h3', { class: 'h5', text: 'Price breakdown' }),
+          el('div', { class: 'table-responsive' }, el('table', { class: 'table table-sm align-middle' }, el('tbody', {}, ...(e.sections ? sectionRows : itemRows)))),
+          ...optionRows, row('Subtotal', usd(t.subtotalCents)), t.contingencyCents ? row('Contingency allowance', usd(t.contingencyCents)) : '', t.discountCents ? row('Discount', `-${usd(t.discountCents)}`) : '', t.taxCents ? row('Sales tax', usd(t.taxCents)) : '', totalLine,
+          el('div', { class: 'small text-muted mt-2', text: `Deposit to schedule: ${usd(t.depositCents)}` })),
+        e.exclusions ? el('div', { class: 'card card-body mb-3' }, el('h3', { class: 'h5', text: 'Not included' }), el('div', { class: 'pre-wrap small', text: e.exclusions })) : '',
+        e.terms ? el('div', { class: 'card card-body mb-3' }, el('h3', { class: 'h5', text: 'Terms' }), el('div', { class: 'pre-wrap small', text: e.terms })) : '',
+        e.status === 'sent' ? el('div', { class: 'card card-body mb-3' }, el('h3', { class: 'h5', text: 'Approve this estimate' }), signName.wrap,
+          el('div', { class: 'form-check mb-3' }, signAgree, el('label', { class: 'form-check-label', for: 'sign-agree', text: 'I have read this estimate and its terms and agree to proceed. Typing my name is my electronic signature.' })), el('p', { class: 'small text-muted', text: e.consent || '' }),
+          Object.assign(el('button', { class: 'btn btn-brass', type: 'button', text: 'Sign & accept estimate' }), { onclick: act(async () => { await render((await postJson(`/api/account/estimates/${id}/sign`, { name: signName.input.value, agree: signAgree.checked, optionalIds: [...optionBoxes].filter(([, cb]) => cb.checked).map(([k]) => k) })).estimate); }) }),
+          el('hr'), decline.wrap, Object.assign(el('button', { class: 'btn btn-outline-danger btn-sm', type: 'button', text: 'Decline estimate' }), { onclick: act(async () => { if (confirm('Decline this estimate?')) await render((await postJson(`/api/account/estimates/${id}/decline`, { reason: decline.input.value })).estimate); }) })) : '',
+        e.status === 'accepted' ? el('div', { class: 'card card-body mb-3' }, el('h3', { class: 'h5', text: 'Payments' }), el('p', { class: 'mb-2', text: `Signed by ${e.signedName} on ${date(e.signedAt)}. Paid ${usd(t.paidCents)}. Balance ${usd(t.balanceCents)}.` }),
+          ...e.payments.map(p => el('div', { class: 'small text-muted', text: `${date(p.paidOn)} \u00b7 ${usd(p.amountCents)} \u00b7 ${p.method}` })),
+          t.balanceCents > 0 ? el('div', { class: 'mt-3' }, e.payEnabled ? [t.depositDueCents > 0 ? payButton('deposit', `Pay deposit ${usd(t.depositDueCents)}`) : '', payButton('balance', `Pay full balance ${usd(t.balanceCents)}`)] : el('p', { class: 'small text-muted mb-0', text: 'To pay by check, cash or card, please contact us. Online payment is coming soon.' })) : '') : '',
+        docs.length ? el('div', {}, el('h3', { class: 'h5', text: 'Legal documents' }), ...docs) : '',
+        el('div', { class: 'mt-3 d-flex flex-wrap gap-2' }, el('a', { class: 'btn btn-outline-dark btn-sm', href: `/api/account/estimates/${id}/pdf`, target: '_blank', rel: 'noopener', text: 'Download estimate PDF' })), note);
+    };
+    await render(await load());
+  }
+
+  const run = { dashboard, new: newRequest, request: requestDetail, estimate: estimateDetail, admin }[page];
   if (run) run().catch(error => { const box = document.getElementById('account-root') || root; show(box, 'danger', error.message); });
 })();
