@@ -1,3 +1,5 @@
+document.querySelectorAll('input[data-min-today]').forEach(i => { i.min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10); });
+
 document.querySelectorAll('form[data-form]').forEach(form => {
   const status = form.querySelector('.form-status');
   form.addEventListener('submit', async event => {

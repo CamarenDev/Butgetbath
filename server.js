@@ -73,7 +73,7 @@ function createServer({
     if (typeof input.website === 'string' && input.website.trim()) return sendJson(res, 201, { message: 'Thanks!' });
 
     const clean = {};
-    for (const field of ['type', 'name', 'email', 'phone', 'location', 'interest', 'message']) {
+    for (const field of ['type', 'name', 'email', 'phone', 'location', 'interest', 'message', 'preferredDate', 'preferredTime']) {
       const value = input[field] === undefined ? '' : input[field];
       if (typeof value !== 'string' || value.trim().length > (field === 'message' ? 4000 : 200)) return sendJson(res, 400, { error: 'Please check the form fields and try again.' });
       clean[field] = value.trim();
@@ -81,6 +81,10 @@ function createServer({
     if (!['project', 'work', 'question'].includes(clean.type) || !clean.name || !clean.location || !clean.interest || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email) || input.consent !== true) {
       return sendJson(res, 400, { error: 'Please complete the required fields and agree to the privacy policy.' });
     }
+    if (clean.preferredDate && !/^\d{4}-\d{2}-\d{2}$/.test(clean.preferredDate)) return sendJson(res, 400, { error: 'Please choose a valid day.' });
+    const visit = [clean.preferredDate, clean.preferredTime].filter(Boolean).join(', ');
+    if (visit) clean.message = `Preferred visit: ${visit}${clean.message ? '\n\n' + clean.message : ''}`;
+    delete clean.preferredDate; delete clean.preferredTime;
     clean.receivedAt = new Date().toISOString();
     try {
       await fs.appendFile(path.join(dataDir, 'submissions.jsonl'), JSON.stringify(clean) + '\n', { mode: 0o600 });

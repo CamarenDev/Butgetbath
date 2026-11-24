@@ -24,7 +24,28 @@
   const STAFF_LABELS = { submitted: 'Open', in_progress: 'In progress', awaiting_customer: 'Awaiting customer', resolved: 'Resolved', closed: 'Closed' };
   const statusBadge = (status, label, staff) => el('span', { class: `badge text-bg-${STATUS_COLORS[status] || 'secondary'}`, text: status === 'draft' ? 'Draft (not sent yet)' : (staff && STAFF_LABELS[status]) || label });
   const dateTime = value => value ? new Date(value).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-  const photoGrid = photos => el('div', { class: 'row g-3 mt-1' }, ...photos.map(p => el('figure', { class: 'col-6 col-md-4 mb-0' }, el('a', { href: `/api/photos/${p.id}`, target: '_blank', rel: 'noopener' }, el('img', { src: `/api/photos/${p.id}`, alt: p.caption || `Project photo: ${p.name}`, class: 'img-fluid rounded-3 w-100', loading: 'lazy' })), p.caption ? el('figcaption', { class: 'small mt-1 pre-wrap', text: p.caption }) : '')));
+  const photoGrid = photos => el('div', { class: 'row g-3 mt-1' }, ...photos.map(p => el('figure', { class: 'col-6 col-md-4 mb-0 media-item' },
+    p.kind === 'video'
+      ? el('video', { src: `/api/photos/${p.id}`, controls: '', preload: 'metadata', playsinline: '', 'aria-label': p.caption || `Project video: ${p.name}`, class: 'w-100 rounded-3 bg-dark' })
+      : el('a', { href: `/api/photos/${p.id}`, target: '_blank', rel: 'noopener' }, el('img', { src: `/api/photos/${p.id}`, alt: p.caption || `Project photo: ${p.name}`, class: 'img-fluid rounded-3 w-100', loading: 'lazy' })),
+    p.caption ? el('figcaption', { class: 'small mt-1 pre-wrap', text: p.caption }) : '')));
+  const PRIORITY_COLORS = { low: 'secondary', normal: 'light', high: 'warning', urgent: 'danger' };
+  const priorityBadge = r => r.priority && r.priority !== 'normal' ? el('span', { class: `badge text-bg-${PRIORITY_COLORS[r.priority]}`, text: `${r.priorityLabel} priority` }) : '';
+  const FLOW = [['submitted', 'Received'], ['in_progress', 'In progress'], ['awaiting_customer', 'Waiting on reply'], ['resolved', 'Resolved']];
+  const stepper = status => {
+    const at = status === 'closed' ? 3 : Math.max(FLOW.findIndex(([v]) => v === status), 0);
+    return el('ol', { class: 'stepper list-unstyled', 'aria-label': 'Request progress' }, ...FLOW.map(([, label], i) => el('li', { class: `step${i < at ? ' done' : ''}${i === at ? ' current' : ''}`, ...(i === at ? { 'aria-current': 'step' } : {}) }, el('span', { class: 'dot', text: i < at ? '\u2713' : String(i + 1) }), el('span', { class: 'lbl', text: label }))));
+  };
+  const timeAgo = value => {
+    if (!value) return '';
+    const mins = Math.round((Date.now() - new Date(value)) / 60000);
+    if (mins < 2) return 'just now';
+    if (mins < 60) return `${mins} min ago`;
+    if (mins < 1440) return `${Math.round(mins / 60)} hr ago`;
+    return mins < 10080 ? `${Math.round(mins / 1440)} days ago` : date(value);
+  };
+  const stat = (label, value, tone) => el('div', { class: 'col-6 col-lg-3' }, el('div', { class: `stat-tile tone-${tone}` }, el('div', { class: 'n', text: String(value) }), el('div', { class: 'l', text: label })));
+  const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm';
   const field = (label, value) => value ? el('p', { class: 'mb-2' }, el('strong', { text: `${label}: ` }), document.createTextNode(value)) : '';
   const requireUser = async () => { try { return (await api('/api/auth/me')).user; } catch (e) { if (e.status === 401) { location.replace('/account/login/'); return null; } throw e; } };
 
@@ -83,16 +104,36 @@
     if (!user) return;
     const box = document.getElementById('account-root');
     const { requests } = await api('/api/requests');
-    const upcoming = (await api('/api/appointments').catch(() => ({ appointments: [] }))).appointments;
+    const upcoming = (await api('/api/appointments').catch(() => ({ appointments: [] }))).appointments.filter(a => a.status === 'scheduled');
+    const active = requests.filter(r => ['submitted', 'in_progress', 'awaiting_customer'].includes(r.status));
+    const waiting = requests.filter(r => r.unread || r.status === 'awaiting_customer');
+    let query = '', filter = 'all';
+    const list = el('div', { class: 'request-list' });
+    const matches = r => (filter === 'all' || (filter === 'active' ? active.includes(r) : filter === 'reply' ? waiting.includes(r) : r.status === filter)) && (!query || `${r.title} ${r.projectType} ${r.location} #${r.id}`.toLowerCase().includes(query));
+    const renderList = () => {
+      const shown = requests.filter(matches);
+      list.replaceChildren(...(shown.length ? shown.map(r => el('a', { class: `request-card${r.unread ? ' is-unread' : ''}`, href: `/account/request/?id=${r.id}` },
+        el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('strong', { text: r.title }), el('span', { class: 'd-flex gap-2' }, r.unread ? el('span', { class: 'badge text-bg-danger', text: 'New reply' }) : '', statusBadge(r.status, r.statusLabel))),
+        el('div', { class: 'text-muted small mt-1', text: `#${r.id} \u00b7 ${r.projectType} \u00b7 ${r.location}${r.category ? ` \u00b7 ${r.category}` : ''}` }),
+        el('div', { class: 'text-muted small mt-1', text: `${r.photoCount} file${r.photoCount === 1 ? '' : 's'} \u00b7 ${r.messageCount} message${r.messageCount === 1 ? '' : 's'} \u00b7 updated ${timeAgo(r.lastMessageAt || r.createdAt)}` }))) : [el('div', { class: 'empty-state' }, el('p', { class: 'mb-2', text: requests.length ? 'No requests match your filters.' : 'No requests yet. Share photos or a video of your bathroom and tell us what you have in mind.' }), !requests.length && user.verified ? el('a', { class: 'btn btn-brass', href: '/account/new/', text: 'Start your first request' }) : '')]));
+    };
+    const filters = el('select', { class: 'form-select w-auto', 'aria-label': 'Filter requests' }, ...[['all', 'All requests'], ['active', 'Active'], ['reply', 'Needs your attention'], ['resolved', 'Resolved'], ['closed', 'Closed'], ['draft', 'Drafts']].map(([v, l]) => el('option', { value: v, text: l })));
+    const search = el('input', { class: 'form-control', type: 'search', placeholder: 'Search your requests', 'aria-label': 'Search your requests' });
+    filters.addEventListener('change', () => { filter = filters.value; renderList(); });
+    search.addEventListener('input', () => { query = search.value.trim().toLowerCase(); renderList(); });
+    renderList();
+    const next = upcoming[0];
     box.className = '';
     box.replaceChildren(
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-3 mb-4' },
-        el('div', {}, el('h2', { class: 'h3 mb-0', text: `Hi, ${user.name}` }), el('span', { class: 'text-muted', text: user.email })),
-        el('div', { class: 'd-flex gap-2' }, user.admin ? el('a', { class: 'btn btn-outline-dark', href: '/account/admin/', text: 'Customer requests' }) : '', el('button', { class: 'btn btn-outline-dark', type: 'button', 'data-logout': '', text: 'Sign out' }))),
+        el('div', {}, el('h2', { class: 'h3 mb-0', text: `Hi, ${user.name.split(' ')[0]}` }), el('span', { class: 'text-muted', text: user.email })),
+        el('div', { class: 'd-flex gap-2' }, user.verified ? el('a', { class: 'btn btn-brass', href: '/account/new/', text: 'New request' }) : '', user.admin ? el('a', { class: 'btn btn-outline-dark', href: '/account/admin/', text: 'Staff queue' }) : '', el('button', { class: 'btn btn-outline-dark', type: 'button', 'data-logout': '', text: 'Sign out' }))),
       user.verified ? '' : el('div', { class: 'alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2' }, el('span', { text: 'Please confirm your email to send project requests. Check your inbox for our message.' }), el('button', { class: 'btn btn-sm btn-dark', type: 'button', 'data-resend': '', text: 'Resend email' })),
-      upcoming.length ? el('div', { class: 'mb-4' }, el('h2', { class: 'h4', text: user.admin ? 'Upcoming appointments' : 'Your upcoming appointments' }), ...upcoming.map(a => el('div', {}, el('a', { class: 'small', href: `/account/request/?id=${a.requestId}`, text: a.requestTitle }), appointmentCard(a, { staff: user.admin })))) : '',
-      el('div', { class: 'd-flex justify-content-between align-items-center mb-3' }, el('h2', { class: 'h4 mb-0', text: 'Your project requests' }), user.verified ? el('a', { class: 'btn btn-brass', href: '/account/new/', text: 'New request' }) : ''),
-      requests.length ? el('div', { class: 'list-group' }, ...requests.map(r => el('a', { class: 'list-group-item list-group-item-action p-3', href: `/account/request/?id=${r.id}` }, el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('strong', { text: `${r.title}  #${r.id}` }), el('span', { class: 'd-flex gap-2' }, r.unread ? el('span', { class: 'badge text-bg-danger', text: 'New reply' }) : '', statusBadge(r.status, r.statusLabel))), el('div', { class: 'text-muted small mt-1', text: `${r.projectType} \u00b7 ${r.location} \u00b7 ${r.photoCount} photo${r.photoCount === 1 ? '' : 's'} \u00b7 ${r.messageCount} message${r.messageCount === 1 ? '' : 's'} \u00b7 ${date(r.lastMessageAt || r.createdAt)}` })))) : el('div', { class: 'card card-body p-4 text-center' }, el('p', { class: 'mb-0', text: 'No requests yet. Start one and tell us what you are looking for.' })),
+      el('div', { class: 'row g-3 mb-4' }, stat('Active requests', active.length, 'a'), stat('Need your attention', waiting.length, waiting.length ? 'warn' : 'b'), stat('Upcoming visits', upcoming.length, 'c'), stat('All requests', requests.length, 'b')),
+      next ? el('div', { class: 'next-visit mb-4' }, el('div', {}, el('p', { class: 'eyebrow dark mb-1', text: 'Your next appointment' }), el('h2', { class: 'h5 mb-1', text: fullWhen(next) }), el('span', { class: 'text-muted small', text: `${next.kindLabel} \u00b7 ${next.durationMin} minutes${next.location ? ` \u00b7 ${next.location}` : ''}` })), el('div', { class: 'd-flex flex-wrap gap-2' }, el('a', { class: 'btn btn-sm btn-outline-dark', href: next.googleUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Google Calendar' }), el('a', { class: 'btn btn-sm btn-outline-dark', href: next.icsPath, text: 'Apple / Outlook' }), el('a', { class: 'btn btn-sm btn-dark', href: `/account/request/?id=${next.requestId}`, text: 'View request' }))) : '',
+      upcoming.length > 1 ? el('div', { class: 'mb-4' }, el('h2', { class: 'h5', text: 'More upcoming appointments' }), ...upcoming.slice(1).map(a => el('div', {}, el('a', { class: 'small', href: `/account/request/?id=${a.requestId}`, text: a.requestTitle }), appointmentCard(a, { staff: user.admin })))) : '',
+      el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-2 mb-3' }, el('h2', { class: 'h4 mb-0', text: 'Your project requests' }), el('div', { class: 'd-flex flex-wrap gap-2' }, search, filters)),
+      list,
       el('div', { class: 'form-check form-switch mt-4' }, el('input', { class: 'form-check-input', type: 'checkbox', role: 'switch', id: 'notify-pref', ...(user.notifyEmail ? { checked: '' } : {}) }), el('label', { class: 'form-check-label', for: 'notify-pref', text: 'Email me when our team replies or updates a request' })));
     const pref = box.querySelector('#notify-pref');
     pref.addEventListener('change', () => postJson('/api/auth/preferences', { notifyEmail: pref.checked }).catch(() => { pref.checked = !pref.checked; }));
@@ -101,27 +142,51 @@
     if (resend) resend.addEventListener('click', async () => { resend.disabled = true; try { await postJson('/api/auth/resend-verification', {}); resend.textContent = 'Sent!'; } catch (e) { resend.textContent = e.message; } });
   }
 
+  // XHR gives upload progress, which matters for large videos.
+  const uploadFile = (id, file, caption, onProgress) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/requests/${id}/photos`);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+    if (caption) xhr.setRequestHeader('X-Caption', encodeURIComponent(caption));
+    xhr.upload.onprogress = e => { if (e.lengthComputable && onProgress) onProgress(Math.round(e.loaded / e.total * 100)); };
+    xhr.onerror = () => reject(new Error('The upload was interrupted. Please check your connection and try again.'));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch { /* non-JSON error */ }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data); else reject(new Error(data.error || 'Upload failed. Please try again.'));
+    };
+    xhr.send(file);
+  });
   async function uploadPhotos(id, files, status) {
     let done = 0;
     for (const file of files) {
-      status.textContent = `Uploading photo ${done + 1} of ${files.length}...`;
-      await api(`/api/requests/${id}/photos`, { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream', 'X-Filename': encodeURIComponent(file.name) }, body: file });
+      await uploadFile(id, file, '', pct => { status.textContent = `Uploading ${done + 1} of ${files.length} (${pct}%)...`; });
       done++;
     }
   }
+  const MB = 1024 * 1024;
   const checkFiles = files => {
-    if (files.length > 10) return 'You can upload up to 10 photos.';
+    if (files.length > 10) return 'You can upload up to 10 files at a time.';
     for (const f of files) {
-      if (!/^image\/(jpeg|png|webp)$/.test(f.type)) return `"${f.name}" is not a JPG, PNG or WebP image.`;
-      if (f.size > 8 * 1024 * 1024) return `"${f.name}" is larger than 8 MB.`;
+      const video = /^video\/(mp4|quicktime|webm)$/.test(f.type);
+      if (!video && !/^image\/(jpeg|png|webp)$/.test(f.type)) return `"${f.name}" is not supported. Use JPG, PNG or WebP photos, or MP4, MOV or WebM videos.`;
+      if (f.size > (video ? 100 : 8) * MB) return `"${f.name}" is larger than ${video ? '100' : '8'} MB.`;
     }
     return '';
+  };
+  const fileSummary = files => {
+    const videos = files.filter(f => f.type.startsWith('video/')).length, photos = files.length - videos;
+    return `${photos} photo${photos === 1 ? '' : 's'}${videos ? ` and ${videos} video${videos === 1 ? '' : 's'}` : ''} selected (${(files.reduce((n, f) => n + f.size, 0) / MB).toFixed(1)} MB)`;
   };
 
   async function newRequest() {
     if (!await requireUser()) return;
     const requestForm = document.querySelector('form[data-request-form]');
     const status = requestForm.querySelector('.form-status');
+    const picker = requestForm.querySelector('#photos'), summary = requestForm.querySelector('[data-file-summary]');
+    picker.addEventListener('change', () => { summary.textContent = picker.files.length ? fileSummary([...picker.files]) : ''; });
+    api('/api/meta/ticket').then(meta => { const sel = requestForm.querySelector('#category'); meta.categories.forEach(c => sel.append(el('option', { text: c }))); }).catch(() => {});
     requestForm.addEventListener('submit', async event => {
       event.preventDefault();
       requestForm.classList.add('was-validated');
@@ -132,7 +197,7 @@
       const button = requestForm.querySelector('button[type=submit]');
       button.disabled = true;
       show(status, 'secondary', 'Saving your request...');
-      const data = Object.fromEntries(['title', 'projectType', 'location', 'timeline', 'budget', 'description'].map(k => [k, requestForm.elements[k].value]));
+      const data = Object.fromEntries(['title', 'projectType', 'location', 'timeline', 'budget', 'description', 'category'].map(k => [k, requestForm.elements[k].value]));
       let id;
       try {
         id = (await postJson('/api/requests', data)).id;
@@ -170,11 +235,12 @@
     renderThread();
 
     const details = el('div', { class: 'card card-body p-4 mb-4' },
-      el('div', { class: 'd-flex flex-wrap justify-content-between gap-2 mb-3' }, el('h2', { class: 'h3 mb-0', text: request.title }), el('span', { class: 'd-flex gap-2 align-items-center' }, el('span', { class: 'text-muted', text: `#${request.id}` }), statusBadge(request.status, request.statusLabel, staff))),
+      el('div', { class: 'd-flex flex-wrap justify-content-between gap-2 mb-3' }, el('h2', { class: 'h3 mb-0', text: request.title }), el('span', { class: 'd-flex gap-2 align-items-center' }, el('span', { class: 'text-muted', text: `#${request.id}` }), statusBadge(request.status, request.statusLabel, staff), priorityBadge(request))),
+      request.status === 'draft' ? '' : stepper(request.status),
       staff ? field('Customer', `${request.customer.name} <${request.customer.email}>`) : '', staff ? field('Phone', request.customer.phone) : '',
-      field('Type', request.projectType), field('County', request.location), field('Timeline', request.timeline), field('Budget', request.budget), field('Created', date(request.createdAt)),
+      field('Type', request.projectType), field('Category', request.category), field('County', request.location), field('Timeline', request.timeline), field('Budget', request.budget), field('Created', date(request.createdAt)),
       el('p', { class: 'mt-3 mb-0 pre-wrap', text: request.description }),
-      request.photos.length ? el('div', {}, el('h3', { class: 'h6 mt-4 mb-0', text: `Photos with the request (${request.photos.length})` }), photoGrid(request.photos)) : '');
+      request.photos.length ? el('div', {}, el('h3', { class: 'h6 mt-4 mb-0', text: `Photos and videos with the request (${request.photos.length})` }), photoGrid(request.photos)) : '');
 
     // Appointments: staff schedule, everyone can add them to a calendar, customers can cancel
     let appointments = request.status === 'draft' ? [] : (await api(`/api/requests/${id}/appointments`).catch(() => ({ appointments: [] }))).appointments;
@@ -233,16 +299,19 @@
       request = (await api(`/api/requests/${id}`)).request;
       renderThread();
       statusSelect.value = request.status;
+      prioritySelect.value = request.priority || 'normal';
     }
 
     // Staff controls
     const statusSelect = el('select', { class: 'form-select w-auto', id: 'ticket-status', 'aria-label': 'Request status' }, ...Object.entries(STAFF_LABELS).map(([v, l]) => el('option', { value: v, text: l, ...(v === request.status ? { selected: '' } : {}) })));
-    const staffBar = staff ? el('div', { class: 'card card-body p-3 mb-4 d-flex flex-row flex-wrap align-items-center gap-3' }, el('label', { class: 'fw-semibold', for: 'ticket-status', text: 'Status' }), statusSelect, el('span', { class: 'text-muted small', text: 'Changing the status emails the customer.' })) : '';
+    const prioritySelect = el('select', { class: 'form-select w-auto', id: 'ticket-priority', 'aria-label': 'Request priority' }, ...[['low', 'Low'], ['normal', 'Normal'], ['high', 'High'], ['urgent', 'Urgent']].map(([v, l]) => el('option', { value: v, text: l, ...(v === (request.priority || 'normal') ? { selected: '' } : {}) })));
+    const staffBar = staff ? el('div', { class: 'card card-body p-3 mb-4 d-flex flex-row flex-wrap align-items-center gap-3' }, el('label', { class: 'fw-semibold', for: 'ticket-status', text: 'Status' }), statusSelect, el('label', { class: 'fw-semibold', for: 'ticket-priority', text: 'Priority' }), prioritySelect, el('span', { class: 'text-muted small', text: 'Changing the status emails the customer.' })) : '';
+    prioritySelect.addEventListener('change', async () => { try { await postJson(`/api/requests/${id}/priority`, { priority: prioritySelect.value }); await refresh(); } catch (e) { show(status, 'danger', e.message); } });
     statusSelect.addEventListener('change', async () => { try { await postJson(`/api/requests/${id}/status`, { status: statusSelect.value }); await refresh(); } catch (e) { show(status, 'danger', e.message); } });
 
     // Draft: add photos, then send to our team
-    const draftFile = el('input', { class: 'form-control', id: 'more-photos', type: 'file', accept: 'image/jpeg,image/png,image/webp', multiple: '' });
-    const draftAdd = el('button', { class: 'btn btn-outline-dark mt-2', type: 'button', text: 'Upload photos' });
+    const draftFile = el('input', { class: 'form-control', id: 'more-photos', type: 'file', accept: MEDIA_ACCEPT, multiple: '' });
+    const draftAdd = el('button', { class: 'btn btn-outline-dark mt-2', type: 'button', text: 'Upload files' });
     const draftSend = el('button', { class: 'btn btn-brass btn-lg', type: 'button', text: 'Send to Budget Bath Solutions' });
     const draftPanel = el('div', { class: 'card card-body p-4' }, el('p', { class: 'mb-3', text: 'This request is a draft. Add photos if you like, then send it to our team to start the conversation.' }),
       el('label', { class: 'form-label', for: 'more-photos', text: 'Add photos (JPG, PNG or WebP, up to 8 MB each)' }), draftFile, draftAdd, el('div', { class: 'mt-4' }, draftSend), status);
@@ -261,19 +330,19 @@
 
     // Composer: a message plus photos, each with its own comment
     const body = el('textarea', { class: 'form-control', id: 'ticket-body', rows: '4', maxlength: '4000', placeholder: staff ? 'Reply to the customer...' : 'Write a message to our team...' });
-    const files = el('input', { class: 'form-control', id: 'ticket-photos', type: 'file', accept: 'image/jpeg,image/png,image/webp', multiple: '' });
+    const files = el('input', { class: 'form-control', id: 'ticket-photos', type: 'file', accept: MEDIA_ACCEPT, multiple: '' });
     const previews = el('div', { class: 'row g-3 mt-1' });
     const internal = staff ? el('input', { class: 'form-check-input', type: 'checkbox', id: 'ticket-internal' }) : null;
     const sendMessage = el('button', { class: 'btn btn-brass', type: 'button', text: 'Send message' });
     let chosen = [];
-    const renderPreviews = () => previews.replaceChildren(...chosen.map((c, i) => el('div', { class: 'col-6 col-md-4' }, el('div', { class: 'card h-100' }, el('img', { src: c.url, alt: `Preview of ${c.file.name}`, class: 'card-img-top' }),
-      el('div', { class: 'card-body p-2' }, el('input', { class: 'form-control form-control-sm', type: 'text', maxlength: '300', placeholder: 'Add a comment about this photo', 'aria-label': `Comment for ${c.file.name}`, value: c.caption }), el('button', { class: 'btn btn-link btn-sm p-0 mt-1', type: 'button', text: 'Remove', 'data-remove': String(i) }))))));
+    const renderPreviews = () => previews.replaceChildren(...chosen.map((c, i) => el('div', { class: 'col-6 col-md-4' }, el('div', { class: 'card h-100' }, c.file.type.startsWith('video/') ? el('video', { src: c.url, class: 'card-img-top', controls: '', preload: 'metadata' }) : el('img', { src: c.url, alt: `Preview of ${c.file.name}`, class: 'card-img-top' }),
+      el('div', { class: 'card-body p-2' }, el('input', { class: 'form-control form-control-sm', type: 'text', maxlength: '300', placeholder: 'Add a comment about this photo or video', 'aria-label': `Comment for ${c.file.name}`, value: c.caption }), el('button', { class: 'btn btn-link btn-sm p-0 mt-1', type: 'button', text: 'Remove', 'data-remove': String(i) }))))));
     previews.addEventListener('input', event => { const row = event.target.closest('.col-6'); if (row) chosen[[...previews.children].indexOf(row)].caption = event.target.value; });
     previews.addEventListener('click', event => { const i = event.target.dataset.remove; if (i !== undefined) { URL.revokeObjectURL(chosen[i].url); chosen.splice(Number(i), 1); renderPreviews(); } });
     files.addEventListener('change', () => {
       const picked = [...files.files];
       files.value = '';
-      const problem = checkFiles(picked) || (chosen.length + picked.length > 10 ? 'You can attach up to 10 photos per message.' : '');
+      const problem = checkFiles(picked) || (chosen.length + picked.length > 10 ? 'You can attach up to 10 files per message.' : '');
       if (problem) return show(status, 'danger', problem);
       status.className = 'form-status mt-3';
       status.textContent = '';
@@ -282,13 +351,13 @@
     });
     sendMessage.addEventListener('click', async () => {
       const text = body.value.trim();
-      if (!text && !chosen.length) return show(status, 'warning', 'Write a message or add a photo first.');
+      if (!text && !chosen.length) return show(status, 'warning', 'Write a message or add a photo or video first.');
       sendMessage.disabled = true;
       try {
         const photoIds = [];
         for (const [i, c] of chosen.entries()) {
-          show(status, 'secondary', `Uploading photo ${i + 1} of ${chosen.length}...`);
-          photoIds.push((await api(`/api/requests/${id}/photos`, { method: 'POST', headers: { 'Content-Type': c.file.type, 'X-Filename': encodeURIComponent(c.file.name), 'X-Caption': encodeURIComponent(c.caption.trim()) }, body: c.file })).id);
+          show(status, 'secondary', `Uploading file ${i + 1} of ${chosen.length}...`);
+          photoIds.push((await uploadFile(id, c.file, c.caption.trim(), pct => { status.textContent = `Uploading file ${i + 1} of ${chosen.length} (${pct}%)...`; })).id);
         }
         await postJson(`/api/requests/${id}/messages`, { body: text, photoIds, ...(staff ? { internal: internal.checked } : {}) });
         body.value = '';
@@ -307,7 +376,7 @@
     if (canClose) closeButton.addEventListener('click', async () => { try { await postJson(`/api/requests/${id}/status`, { status: request.status === 'resolved' ? 'closed' : 'resolved' }); location.reload(); } catch (e) { show(status, 'danger', e.message); } });
     const composer = el('div', { class: 'card card-body p-4 mt-3' },
       el('label', { class: 'form-label fw-semibold', for: 'ticket-body', text: staff ? 'Reply' : 'Add a message' }), body,
-      el('label', { class: 'form-label mt-3', for: 'ticket-photos', text: 'Attach photos (JPG, PNG or WebP, up to 8 MB each)' }), files, previews,
+      el('label', { class: 'form-label mt-3', for: 'ticket-photos', text: 'Attach photos (up to 8 MB) or videos (MP4, MOV or WebM, up to 100 MB)' }), files, previews,
       internal ? el('div', { class: 'form-check mt-3' }, internal, el('label', { class: 'form-check-label', for: 'ticket-internal', text: 'Internal note (hidden from the customer, no email sent)' })) : '',
       el('div', { class: 'd-flex flex-wrap gap-2 mt-3' }, sendMessage, closeButton), status);
 
@@ -331,15 +400,29 @@
     try {
       const { requests } = await api('/api/admin/requests');
       let filter = 'all';
-      const list = el('div', { class: 'list-group' });
+      let query = '';
+      let sort = 'priority';
+      const rank = { urgent: 0, high: 1, normal: 2, low: 3 };
+      const list = el('div', { class: 'request-list' });
       const bar = el('div', { class: 'd-flex flex-wrap gap-2 mb-3', role: 'group', 'aria-label': 'Filter requests' });
+      const search = el('input', { class: 'form-control', type: 'search', placeholder: 'Search by customer, title or location', 'aria-label': 'Search requests' });
+      const sorter = el('select', { class: 'form-select w-auto', 'aria-label': 'Sort requests' }, el('option', { value: 'priority', text: 'Sort: priority' }), el('option', { value: 'recent', text: 'Sort: latest activity' }));
+      const stats = el('div', { class: 'row g-3 mb-4' });
+      stats.replaceChildren(stat('Total requests', requests.length, 'a'), stat('Need a reply', requests.filter(r => r.unread).length, 'warn'), stat('High priority', requests.filter(r => ['high', 'urgent'].includes(r.priority) && r.status !== 'closed').length, 'b'), stat('Upcoming visits', requests.filter(r => r.nextAppointment).length, 'c'));
       const render = () => {
-        const shown = requests.filter(r => filter === 'all' || (filter === 'unread' ? r.unread : r.status === filter));
-        list.replaceChildren(...(shown.length ? shown.map(r => el('a', { class: 'list-group-item list-group-item-action p-3', href: `/account/request/?id=${r.id}` },
-          el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('strong', { text: `${r.title}  #${r.id}` }), el('span', { class: 'd-flex gap-2' }, r.unread ? el('span', { class: 'badge text-bg-danger', text: 'Needs reply' }) : '', statusBadge(r.status, r.statusLabel, true))),
-          el('div', { class: 'small text-muted mt-1', text: `${r.customer.name} <${r.customer.email}> \u00b7 ${r.projectType} \u00b7 ${r.location} \u00b7 ${r.photoCount} photo${r.photoCount === 1 ? '' : 's'} \u00b7 ${dateTime(r.lastMessageAt)}` }))) : [el('p', { class: 'text-muted', text: 'Nothing here.' })]));
-        bar.replaceChildren(...[['all', 'All'], ['unread', `Needs reply (${requests.filter(r => r.unread).length})`], ...Object.entries(STAFF_LABELS)].map(([v, l]) => el('button', { class: `btn btn-sm ${filter === v ? 'btn-dark' : 'btn-outline-dark'}`, type: 'button', 'data-filter': v, text: l })));
+        const needle = query.toLowerCase();
+        const shown = requests
+          .filter(r => filter === 'all' || (filter === 'unread' ? r.unread : filter === 'high' ? ['high', 'urgent'].includes(r.priority) : r.status === filter))
+          .filter(r => !needle || `${r.title} ${r.customer.name} ${r.customer.email} ${r.location} ${r.projectType}`.toLowerCase().includes(needle))
+          .sort((a, b) => sort === 'priority' ? (rank[a.priority] ?? 2) - (rank[b.priority] ?? 2) || String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)) : String(b.lastMessageAt).localeCompare(String(a.lastMessageAt)));
+        list.replaceChildren(...(shown.length ? shown.map(r => el('a', { class: 'request-card', href: `/account/request/?id=${r.id}` },
+          el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('strong', { text: `${r.title}  #${r.id}` }), el('span', { class: 'd-flex gap-2 flex-wrap' }, r.unread ? el('span', { class: 'badge text-bg-danger', text: 'Needs reply' }) : '', priorityBadge(r), statusBadge(r.status, r.statusLabel, true))),
+          el('div', { class: 'small text-muted mt-1', text: `${r.customer.name} <${r.customer.email}> \u00b7 ${r.projectType} \u00b7 ${r.location} \u00b7 ${r.photoCount} file${r.photoCount === 1 ? '' : 's'} \u00b7 ${timeAgo(r.lastMessageAt)}` }),
+          r.nextAppointment ? el('div', { class: 'small mt-1 fw-semibold', text: `Next visit: ${dateTime(r.nextAppointment)}` }) : '')) : [el('div', { class: 'empty-state', text: 'Nothing matches.' })]));
+        bar.replaceChildren(...[['all', 'All'], ['unread', `Needs reply (${requests.filter(r => r.unread).length})`], ['high', 'High priority'], ...Object.entries(STAFF_LABELS)].map(([v, l]) => el('button', { class: `btn btn-sm ${filter === v ? 'btn-dark' : 'btn-outline-dark'}`, type: 'button', 'data-filter': v, text: l })));
       };
+      search.addEventListener('input', () => { query = search.value.trim(); render(); });
+      sorter.addEventListener('change', () => { sort = sorter.value; render(); });
       bar.addEventListener('click', event => { if (event.target.dataset.filter) { filter = event.target.dataset.filter; render(); } });
       render();
       box.className = '';
@@ -348,7 +431,7 @@
       feed.addEventListener('focus', () => feed.select());
       const calendarCard = el('div', { class: 'card card-body p-3 mb-4' }, el('strong', { text: 'Subscribe to all appointments' }),
         el('p', { class: 'small text-muted mb-2', text: `Add this private URL to Apple Calendar, Outlook or Google Calendar ("From URL"). Keep it secret.${cal.googleSync ? ' New appointments are also pushed to the business Google Calendar.' : ''}` }), feed);
-      box.replaceChildren(el('p', {}, el('a', { href: '/account/', text: '\u2190 Back to my account' })), calendarCard, bar, list);
+      box.replaceChildren(el('p', {}, el('a', { href: '/account/', text: '\u2190 Back to my account' })), calendarCard, stats, el('div', { class: 'd-flex flex-wrap gap-2 mb-3' }, search, sorter), bar, list);
     } catch (e) { show(box, 'danger', e.status === 403 ? 'Your account does not have staff access.' : e.message); }
   }
 
