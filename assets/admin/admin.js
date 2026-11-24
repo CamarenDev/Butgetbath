@@ -110,9 +110,9 @@
   // ---------- Support tickets
   const support = async () => {
     const { requests } = await api('/api/admin/requests');
-    view.replaceChildren(panel(`Support requests (${requests.length})`, requests.length ? tableOf(['#', 'Request', 'Customer', 'Status', 'Updated', ''], requests.map(r => el('tr', {},
+    view.replaceChildren(panel(`Support requests (${requests.length})`, requests.length ? tableOf(['#', 'Request', 'Customer', 'Priority', 'Status', 'Next visit', 'Updated', ''], requests.map(r => el('tr', {},
       el('td', { text: String(r.id) }), el('td', {}, el('strong', { text: r.title }), el('div', { class: 'small text-muted', text: [r.projectType, r.location].filter(Boolean).join(' \u00B7 ') })),
-      el('td', {}, r.customer.name, el('div', { class: 'small text-muted', text: r.customer.email })), el('td', {}, badge(r.statusLabel, r.unread ? 'warning' : 'secondary')), el('td', { text: when(r.lastMessageAt) }),
+      el('td', {}, r.customer.name, el('div', { class: 'small text-muted', text: r.customer.email })), el('td', {}, badge(r.priorityLabel, { urgent: 'danger', high: 'warning', low: 'secondary' }[r.priority] || 'info')), el('td', {}, badge(r.statusLabel, r.unread ? 'warning' : 'secondary')), el('td', { text: r.nextAppointment ? when(r.nextAppointment) : '\u2014' }), el('td', { text: when(r.lastMessageAt) }),
       el('td', {}, el('a', { class: 'btn btn-sm btn-primary', href: `/account/request/?id=${r.id}`, target: '_blank', rel: 'noopener', text: 'Open' }))))) : empty('No support requests yet.')));
   };
 
