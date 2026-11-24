@@ -1,8 +1,8 @@
-const CACHE = 'bbs-v1';
+const CACHE = 'bbs-v2';
 const OFFLINE = '/offline/';
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(c => c.addAll([OFFLINE, '/styles.css', '/enhance.css', '/vendor/bootstrap.min.css'])).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(c => c.addAll([OFFLINE, '/styles.css', '/enhance.css', '/enterprise.css', '/vendor/bootstrap.min.css'])).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
@@ -12,7 +12,7 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const { request } = event;
   const url = new URL(request.url);
-  if (request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/admin/') || url.pathname.startsWith('/account/')) return;
+  if (request.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/admin/') || url.pathname.startsWith('/account/') || url.pathname.startsWith('/employee/') || url.pathname.startsWith('/estimator/')) return;
   if (request.mode === 'navigate') {
     event.respondWith(fetch(request).catch(() => caches.match(OFFLINE)));
     return;

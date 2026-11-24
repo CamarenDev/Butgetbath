@@ -33,3 +33,11 @@ Without these, notifications still work; customers reply through the website.
 
 ## Before launch
 Set phone/email in `site.json`, add `assets/og-image.png` (1200x630, design in `assets/og-card.html`), claim Google Business Profile, submit `sitemap.xml` to Search Console.
+
+## Estimator payments and signed PDFs
+- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`: enable card payments. Add a Stripe webhook to `https://YOURSITE/api/webhooks/stripe` for `checkout.session.completed`. Without them, customers are told to contact you and admins record cash/check payments.
+- Signed-copy PDFs are emailed through Resend (needs `RESEND_API_KEY`) to the customer and `NOTIFY_EMAIL`.
+- Behind a proxy, set the trusted-proxy option so signature records store the real client IP.
+
+## AI photo estimating (optional)
+Set `AI_API_KEY` (and optionally `AI_MODEL`, `AI_BASE_URL`) to enable photo estimating in the estimator. Photos leave the server to that provider for analysis, so mention it in your privacy policy. Leave unset to keep it off.
