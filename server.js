@@ -189,6 +189,7 @@ function createServer({
   if (siteUrl.startsWith('https://')) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
   server.seoSync = api.seoSync;
   server.headersTimeout = 15000; server.requestTimeout = 120000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 60;
+  server.bookings = api.bookings;
   return server;
 }
 

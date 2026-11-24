@@ -95,4 +95,4 @@ Full scan of every source file for hardcoded, time-sensitive or externally sourc
 
 - Skills test question banks (`lib/skill-tests.js`): have a lead tradesperson in each trade review the questions and answers.
 - Onboarding and training (`lib/training.js`, `lib/onboarding.js`): the lesson text, quiz answers and the starter employment agreement are general templates. Have the owner, a lead tradesperson and an attorney review them (the agreement, at-will terms, location consent and state wage rules). The W-4 and I-9 screens only collect answers to prepare the official forms; an accountant or attorney should confirm the process, I-9 document inspection within 3 business days, and record retention.
-
+- Public phone number: `site.json` `phone` is empty, so no site-wide Call buttons or phone numbers appear. Set `BUSINESS_PHONE` (or `phone` in `site.json`) and rebuild. Also set the real business hours in Admin > Bookings > Availability (defaults to Mon-Fri 8am-6pm Central) and confirm the booking emails reach a real inbox (Resend domain verified).

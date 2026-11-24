@@ -107,6 +107,7 @@
     const box = document.getElementById('account-root');
     const { requests } = await api('/api/requests');
     const upcoming = (await api('/api/appointments').catch(() => ({ appointments: [] }))).appointments.filter(a => a.status === 'scheduled');
+    const booked = (await api('/api/account/bookings').catch(() => ({ bookings: [] }))).bookings;
     const active = requests.filter(r => ['submitted', 'in_progress', 'awaiting_customer'].includes(r.status));
     const waiting = requests.filter(r => r.unread || r.status === 'awaiting_customer');
     let query = '', filter = 'all';
@@ -145,8 +146,12 @@
         el('div', {}, el('h2', { class: 'h3 mb-0', text: `Hi, ${user.name.split(' ')[0]}` }), el('span', { class: 'text-muted', text: user.email })),
         el('div', { class: 'd-flex gap-2' }, user.verified ? el('a', { class: 'btn btn-brass', href: '/account/new/', text: 'New request' }) : '', user.admin ? el('a', { class: 'btn btn-outline-dark', href: '/account/admin/', text: 'Staff queue' }) : '', el('button', { class: 'btn btn-outline-dark', type: 'button', 'data-logout': '', text: 'Sign out' }))),
       user.verified ? '' : el('div', { class: 'alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2' }, el('span', { text: 'Please confirm your email to send project requests. Check your inbox for our message.' }), el('button', { class: 'btn btn-sm btn-dark', type: 'button', 'data-resend': '', text: 'Resend email' })),
-      el('div', { class: 'row g-3 mb-4' }, stat('Active requests', active.length, 'a'), stat('Need your attention', waiting.length, waiting.length ? 'warn' : 'b'), stat('Upcoming visits', upcoming.length, 'c'), stat('All requests', requests.length, 'b')),
+      el('div', { class: 'row g-3 mb-4' }, stat('Active requests', active.length, 'a'), stat('Need your attention', waiting.length, waiting.length ? 'warn' : 'b'), stat('Upcoming visits', upcoming.length + booked.length, 'c'), stat('All requests', requests.length, 'b')),
       next ? el('div', { class: 'next-visit mb-4' }, el('div', {}, el('p', { class: 'eyebrow dark mb-1', text: 'Your next appointment' }), el('h2', { class: 'h5 mb-1', text: fullWhen(next) }), el('span', { class: 'text-muted small', text: `${next.kindLabel} \u00b7 ${next.durationMin} minutes${next.location ? ` \u00b7 ${next.location}` : ''}` })), el('div', { class: 'd-flex flex-wrap gap-2' }, el('a', { class: 'btn btn-sm btn-outline-dark', href: next.googleUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Google Calendar' }), el('a', { class: 'btn btn-sm btn-outline-dark', href: next.icsPath, text: 'Apple / Outlook' }), el('a', { class: 'btn btn-sm btn-dark', href: `/account/request/?id=${next.requestId}`, text: 'View request' }))) : '',
+      el('div', { class: 'mb-4' }, el('h2', { class: 'h5', text: 'Booked online' }),
+        ...(booked.length ? booked.map(b => el('div', { class: 'card card-body p-3 mb-2' }, el('strong', { text: `${b.when} (${b.timeZone})` }), el('div', { class: 'small text-muted', text: `${b.kindLabel} \u00b7 ${b.durationMin} minutes${b.where ? ` \u00b7 ${b.where}` : ''}` }),
+          el('div', { class: 'd-flex flex-wrap gap-2 mt-3' }, el('a', { class: 'btn btn-sm btn-outline-dark', href: b.googleUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Add to Google Calendar' }), el('a', { class: 'btn btn-sm btn-outline-dark', href: b.icsPath, text: 'Apple / Outlook (.ics)' }), el('a', { class: 'btn btn-sm btn-dark', href: b.manageUrl, text: 'Reschedule or cancel' })))) : [el('p', { class: 'text-muted small mb-2', text: 'Nothing booked yet. Pick a time for a call, video chat or free in-home estimate.' })]),
+        el('a', { class: 'btn btn-sm btn-brass', href: '/book/', text: 'Book a call or visit' })),
       upcoming.length > 1 ? el('div', { class: 'mb-4' }, el('h2', { class: 'h5', text: 'More upcoming appointments' }), ...upcoming.slice(1).map(a => el('div', {}, el('a', { class: 'small', href: `/account/request/?id=${a.requestId}`, text: a.requestTitle }), appointmentCard(a, { staff: user.admin })))) : '',
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-2 mb-3' }, el('h2', { class: 'h4 mb-0', text: 'Your project requests' }), el('div', { class: 'd-flex flex-wrap gap-2' }, search, filters)),
       estBox, list, docsBox,
