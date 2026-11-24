@@ -330,3 +330,23 @@ test('appointments: staff schedule, customer gets confirmation with .ics, calend
     assert.strictEqual((await call(`/api/appointments/${appt.id}/cancel`, {}, cust)).status, 400);
   } finally { srv.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('serves compressed, cacheable assets plus health, manifest and security.txt', async () => {
+  const css = await fetch(base + '/vendor/bootstrap.min.css', { headers: { 'Accept-Encoding': 'gzip' } });
+  assert.strictEqual(css.headers.get('content-encoding'), 'gzip');
+  assert.match(css.headers.get('cache-control'), /immutable/);
+  const etag = css.headers.get('etag');
+  assert.strictEqual((await fetch(base + '/vendor/bootstrap.min.css', { headers: { 'If-None-Match': etag } })).status, 304);
+  assert.deepStrictEqual(await (await fetch(base + '/healthz')).json(), { status: 'ok' });
+  assert.strictEqual((await fetch(base + '/site.webmanifest')).status, 200);
+  assert.match(await (await fetch(base + '/.well-known/security.txt')).text(), /^Contact:/);
+  assert.match(await (await fetch(base + '/robots.txt')).text(), /Disallow: \/account\//);
+});
+
+test('landmarks, image hints and breadcrumbs are present', async () => {
+  const guide = await (await fetch(base + '/homeowner-help/bathroom-remodel-cost-2026/')).text();
+  assert.match(guide, /<nav class="col-6 col-lg-2" aria-label="Services">/);
+  assert.match(guide, /"@type":"BreadcrumbList"/);
+  assert.match(guide, /aria-current="page"/);
+  assert.match(guide, /fetchpriority="high"/);
+});

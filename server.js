@@ -1,6 +1,10 @@
 const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const zlib = require('node:zlib');
+const { promisify } = require('node:util');
+const brotli = promisify(zlib.brotliCompress), gzip = promisify(zlib.gzip);
+const compressible = new Set(['.html', '.css', '.js', '.svg', '.json', '.xml', '.txt']);
 const { openDb } = require('./lib/db');
 const { createMailer, createReceiver } = require('./lib/mailer');
 const { createTemplates } = require('./lib/emails');
@@ -8,7 +12,7 @@ const { createGoogleCalendar } = require('./lib/gcal');
 const { createApi } = require('./lib/api');
 
 const distDir = path.join(__dirname, 'dist');
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.xml': 'application/xml; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.xml': 'application/xml; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json; charset=utf-8' };
 const WINDOW = 10 * 60 * 1000;
 
 const headers = {
@@ -16,6 +20,10 @@ const headers = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'X-Frame-Options': 'DENY',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
 };
 
@@ -57,8 +65,13 @@ function createServer({
     const ip = trustProxy ? (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress : req.socket.remoteAddress;
     const now = Date.now();
     const times = (recent.get(ip) || []).filter(t => now - t < WINDOW);
-    if (times.length >= 10) return sendJson(res, 429, { error: 'Too many requests. Please try again later.' });
+    if (times.length >= 10) {
+      res.setHeader('Retry-After', String(Math.ceil((times[0] + WINDOW - now) / 1000)));
+      return sendJson(res, 429, { error: 'Too many requests. Please try again later.' });
+    }
     times.push(now);
+    res.setHeader('RateLimit-Limit', '10');
+    res.setHeader('RateLimit-Remaining', String(10 - times.length));
     recent.set(ip, times);
     if (recent.size > 10000) for (const [key, list] of recent) if (now - list[list.length - 1] >= WINDOW) recent.delete(key);
 
@@ -99,17 +112,30 @@ function createServer({
   }
 
   async function serveFile(req, res, file, status = 200) {
-    const content = await fs.readFile(file);
+    const [content, stat] = await Promise.all([fs.readFile(file), fs.stat(file)]);
     const ext = path.extname(file);
-    res.writeHead(status, { ...headers, 'Content-Type': types[ext] || 'application/octet-stream', 'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=86400' });
-    res.end(req.method === 'HEAD' ? undefined : content);
+    const etag = `W/"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+    const cache = ext === '.html' || path.basename(file) === 'sw.js' ? 'no-cache' : file.includes(`${path.sep}vendor${path.sep}`) ? 'public, max-age=31536000, immutable' : 'public, max-age=86400';
+    const out = { ...headers, 'Content-Type': types[ext] || 'application/octet-stream', 'Cache-Control': cache, Vary: 'Accept-Encoding', ETag: etag };
+    if (status === 200 && req.headers['if-none-match'] === etag) { res.writeHead(304, out); return res.end(); }
+    let body = content;
+    if (compressible.has(ext) && content.length > 512) {
+      const accept = String(req.headers['accept-encoding'] || '');
+      if (/\bbr\b/.test(accept)) { body = await brotli(content); out['Content-Encoding'] = 'br'; }
+      else if (/\bgzip\b/.test(accept)) { body = await gzip(content); out['Content-Encoding'] = 'gzip'; }
+    }
+    out['Content-Length'] = body.length;
+    res.writeHead(status, out);
+    res.end(req.method === 'HEAD' ? undefined : body);
   }
 
   const server = http.createServer(async (req, res) => {
     for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
+    if (process.env.LOG_REQUESTS === '1') res.on('finish', () => console.log(`${new Date().toISOString()} ${req.method} ${req.url.split('?')[0]} ${res.statusCode}`));
     try {
       let pathname;
       try { pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { return sendJson(res, 400, { error: 'Bad request.' }); }
+      if (pathname === '/healthz') return sendJson(res, 200, { status: 'ok' });
       if (pathname === '/api/submissions') {
         if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' });
         return await submit(req, res);
@@ -137,11 +163,13 @@ function createServer({
     }
   });
   server.on('close', () => db.close());
+  if (siteUrl.startsWith('https://')) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
   return server;
 }
 
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
-  createServer().listen(port, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
+  const server = createServer().listen(port, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
+  for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { server.close(() => process.exit(0)); server.closeIdleConnections(); setTimeout(() => process.exit(1), 10000).unref(); });
 }
 module.exports = { createServer };

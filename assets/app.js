@@ -13,13 +13,13 @@ document.querySelectorAll('form[data-form]').forEach(form => {
     status.className = 'form-status mt-3 text-muted';
     status.textContent = 'Sending...';
     try {
-      const response = await fetch(form.action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+      const response = await fetch(form.action, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), signal: AbortSignal.timeout(20000) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error || 'Something went wrong.');
       window.location.assign('/thank-you/');
     } catch (error) {
       status.className = 'form-status mt-3 alert alert-danger';
-      status.textContent = error.message;
+      status.textContent = error.name === 'TimeoutError' || error instanceof TypeError ? 'We could not reach the server. Please check your connection and try again.' : error.message;
       button.disabled = false;
     }
   });
