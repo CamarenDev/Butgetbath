@@ -7,7 +7,15 @@ const townSlug = t => t.toLowerCase().replace(/\./g, '').replace(/[^a-z0-9]+/g, 
 const cityPages = counties.flatMap(c => c.cities.map(name => ({ name, slug: townSlug(name), county: c })));
 const cityUrl = cp => `/service-areas/${cp.county.slug}/${cp.slug}/`;
 
-const out = process.env.BUILD_OUT ? path.resolve(process.env.BUILD_OUT) : path.join(__dirname, 'dist');
+function buildOutput() {
+  const out = process.env.BUILD_OUT ? path.resolve(process.env.BUILD_OUT) : path.join(__dirname, 'dist');
+  const relative = path.relative(__dirname, out);
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || !/^dist(?:\.|$)/.test(relative)) {
+    throw new Error(`Refusing unsafe BUILD_OUT "${out}". Use the repository's dist or dist.* directory.`);
+  }
+  return out;
+}
+const out = buildOutput();
 const { generateSeoFiles, saveSeoState } = require('./lib/seo');
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 if (process.env.BUSINESS_PHONE) site.phone = process.env.BUSINESS_PHONE;

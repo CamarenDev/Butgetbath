@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 
 execFileSync('node', ['build.js'], { cwd: path.join(__dirname, '..') });
 const { createServer } = require('../server');
@@ -428,4 +428,24 @@ test('SEO generator keeps lastmod stable until a page really changes and lists e
   assert.match(first.files['robots.txt'], /Sitemap: https:\/\/example.com\/sitemap.xml/);
   assert.equal(same.state['/'].lastmod, '2026-01-01');
   assert.equal(same.state['/a/'].lastmod, '2026-02-02');
+});
+
+test('build output guard rejects destructive or non-generated targets', () => {
+  for (const target of ['.', '..', 'data', 'assets']) {
+    const result = spawnSync(process.execPath, ['build.js'], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, BUILD_OUT: target },
+      encoding: 'utf8'
+    });
+    assert.notStrictEqual(result.status, 0, target);
+    assert.match(result.stderr, /Refusing unsafe BUILD_OUT/);
+  }
+  const isolated = spawnSync(process.execPath, ['build.js'], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, BUILD_OUT: path.join(__dirname, '..', 'dist.test-build-safety') },
+    encoding: 'utf8'
+  });
+  assert.equal(isolated.status, 0, isolated.stderr);
+  assert.ok(fs.existsSync(path.join(__dirname, '..', 'dist.test-build-safety', 'index.html')));
+  fs.rmSync(path.join(__dirname, '..', 'dist.test-build-safety'), { recursive: true, force: true });
 });
