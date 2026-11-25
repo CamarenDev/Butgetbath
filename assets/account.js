@@ -11,7 +11,15 @@
     if (!response.ok) { const error = new Error(data.error || 'Something went wrong. Please try again.'); error.status = response.status; throw error; }
     return data;
   };
-  const postJson = (url, body) => api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const pendingPosts = new Map();
+  const postJson = (url, body) => {
+    const payload = JSON.stringify(body), key = `${url}:${payload}`;
+    if (pendingPosts.has(key)) return pendingPosts.get(key);
+    const run = api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+    pendingPosts.set(key, run);
+    run.finally(() => pendingPosts.delete(key)).catch(() => {});
+    return run;
+  };
   const el = (tag, props = {}, ...kids) => {
     const node = document.createElement(tag);
     for (const [k, v] of Object.entries(props)) { if (k === 'class') node.className = v; else if (k === 'text') node.textContent = v; else node.setAttribute(k, v); }
@@ -145,7 +153,7 @@
     box.replaceChildren(
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-3 mb-4' },
         el('div', {}, el('h2', { class: 'h3 mb-0', text: `Hi, ${user.name.split(' ')[0]}` }), el('span', { class: 'text-muted', text: user.email })),
-        el('div', { class: 'd-flex gap-2' }, user.verified ? el('a', { class: 'btn btn-brass', href: '/account/new/', text: 'New request' }) : '', user.admin ? el('a', { class: 'btn btn-outline-dark', href: '/account/admin/', text: 'Staff queue' }) : '', el('button', { class: 'btn btn-outline-dark', type: 'button', 'data-logout': '', text: 'Sign out' }))),
+        el('div', { class: 'd-flex flex-wrap gap-2' }, user.verified ? el('a', { class: 'btn btn-brass', href: '/account/new/', text: 'New request' }) : '', user.admin ? el('a', { class: 'btn btn-outline-dark', href: '/account/admin/', text: 'Staff queue' }) : '', el('button', { class: 'btn btn-outline-dark', type: 'button', 'data-logout': '', text: 'Sign out' }))),
       user.verified ? '' : el('div', { class: 'alert alert-warning d-flex flex-wrap justify-content-between align-items-center gap-2' }, el('span', { text: 'Please confirm your email to send project requests. Check your inbox for our message.' }), el('button', { class: 'btn btn-sm btn-dark', type: 'button', 'data-resend': '', text: 'Resend email' })),
       el('div', { class: 'row g-3 mb-4' }, stat('Active requests', active.length, 'a'), stat('Need your attention', waiting.length, waiting.length ? 'warn' : 'b'), stat('Upcoming visits', upcoming.length + booked.length, 'c'), stat('All requests', requests.length, 'b')),
       next ? el('div', { class: 'next-visit mb-4' }, el('div', {}, el('p', { class: 'eyebrow dark mb-1', text: 'Your next appointment' }), el('h2', { class: 'h5 mb-1', text: fullWhen(next) }), el('span', { class: 'text-muted small', text: `${next.kindLabel} \u00b7 ${next.durationMin} minutes${next.location ? ` \u00b7 ${next.location}` : ''}` })), el('div', { class: 'd-flex flex-wrap gap-2' }, el('a', { class: 'btn btn-sm btn-outline-dark', href: next.googleUrl, target: '_blank', rel: 'noopener noreferrer', text: 'Google Calendar' }), el('a', { class: 'btn btn-sm btn-outline-dark', href: next.icsPath, text: 'Apple / Outlook' }), el('a', { class: 'btn btn-sm btn-dark', href: `/account/request/?id=${next.requestId}`, text: 'View request' }))) : '',
@@ -166,7 +174,13 @@
   }
 
   // XHR gives upload progress, which matters for large videos.
-  const uploadFile = (id, file, caption, onProgress) => new Promise((resolve, reject) => {
+  const uploadRequests = new WeakMap();
+  const uploadFile = (id, file, caption, onProgress) => {
+    let byRequest = uploadRequests.get(file);
+    if (!byRequest) { byRequest = new Map(); uploadRequests.set(file, byRequest); }
+    const key = `${id}:${caption || ''}`;
+    if (byRequest.has(key)) return byRequest.get(key);
+    const request = new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `/api/requests/${id}/photos`);
     xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
@@ -179,14 +193,41 @@
       try { data = JSON.parse(xhr.responseText); } catch { /* non-JSON error */ }
       if (xhr.status >= 200 && xhr.status < 300) resolve(data); else reject(new Error(data.error || 'Upload failed. Please try again.'));
     };
-    xhr.send(file);
-  });
+      xhr.send(file);
+    });
+    byRequest.set(key, request);
+    request.catch(() => byRequest.delete(key));
+    return request;
+  };
   async function uploadPhotos(id, files, status) {
-    let done = 0;
-    for (const file of files) {
-      await uploadFile(id, file, '', pct => { status.textContent = `Uploading ${done + 1} of ${files.length} (${pct}%)...`; });
-      done++;
+    const items = files.map(selection => {
+      const ref = selection instanceof File ? null : selection;
+      const file = ref ? ref.file : selection;
+      return { ref, file, caption: ref?.caption?.trim() || '', id: ref?.uploadedId || '', state: ref?.uploadedId ? 'uploaded' : 'waiting', error: '' };
+    });
+    const showItems = () => {
+      status.className = 'form-status mt-3 alert alert-secondary';
+      status.replaceChildren(...items.map(item => el('div', { class: `small ${item.state === 'failed' ? 'text-danger' : ''}`, text: `${item.file.name}: ${item.state === 'uploaded' ? 'Uploaded' : item.state === 'uploading' ? `Uploading${item.percent ? ` (${item.percent}%)` : ''}…` : item.state === 'failed' ? `Failed — ${item.error}` : 'Waiting'}` })));
+    };
+    for (const item of items) {
+      if (item.id) continue;
+      item.state = 'uploading'; showItems();
+      try {
+        const result = await uploadFile(id, item.file, item.caption || '', pct => { item.percent = pct; showItems(); });
+        item.id = result.id; item.state = 'uploaded';
+        if (item.ref) item.ref.uploadedId = result.id;
+      } catch (error) {
+        item.state = 'failed'; item.error = error.message;
+      }
+      showItems();
     }
+    const failed = items.filter(item => item.state === 'failed');
+    if (failed.length) {
+      const error = new Error(`${items.length - failed.length} uploaded; ${failed.length} failed. Fix or retry only the failed files, then submit again.`);
+      error.uploadItems = items;
+      throw error;
+    }
+    return items.map(item => item.id);
   }
   const MB = 1024 * 1024;
   const checkFiles = files => {
@@ -228,7 +269,10 @@
         await postJson(`/api/requests/${id}/submit`, {});
         location.assign(`/account/request/?id=${id}&sent=1`);
       } catch (error) {
-        show(status, 'danger', error.message + (id ? ' Your request was saved as a draft; you can add photos and send it from the request page.' : ''));
+        if (error.uploadItems) status.className = 'form-status mt-3 alert alert-danger';
+        else show(status, 'danger', error.message);
+        if (id && error.uploadItems) status.append(el('div', { class: 'mt-2 fw-semibold', text: error.message }));
+        else if (id) status.append(' Your request was saved as a draft; you can add photos and send it from the request page.');
         if (id) status.append(' ', el('a', { href: `/account/request/?id=${id}`, text: 'Open draft' }));
         button.disabled = false;
       }
@@ -275,7 +319,7 @@
       el('div', { class: 'col-md-3' }, el('label', { class: 'form-label small', for: 'appt-kind', text: 'Type' }), el('select', { class: 'form-select', id: 'appt-kind' }, ...Object.entries(KIND_LABELS).map(([v, l]) => el('option', { value: v, text: l })))),
       el('div', { class: 'col-md-3' }, el('label', { class: 'form-label small', for: 'appt-where', text: 'Address / link / phone' }), el('input', { class: 'form-control', id: 'appt-where', maxlength: '300' })),
       el('div', { class: 'col-12' }, el('label', { class: 'form-label small', for: 'appt-notes', text: 'Notes for the customer (optional)' }), el('input', { class: 'form-control', id: 'appt-notes', maxlength: '1000' })),
-      el('div', { class: 'col-12 d-flex gap-2' }, el('button', { class: 'btn btn-brass', type: 'submit', text: 'Schedule and email confirmation' }), el('button', { class: 'btn btn-outline-dark d-none', type: 'button', 'data-reset': '', text: 'Cancel edit' }))) : null;
+      el('div', { class: 'col-12 d-flex flex-wrap gap-2' }, el('button', { class: 'btn btn-brass', type: 'submit', text: 'Schedule and email confirmation' }), el('button', { class: 'btn btn-outline-dark d-none', type: 'button', 'data-reset': '', text: 'Cancel edit' }))) : null;
     let editing = null;
     const apptField = key => apptForm.querySelector(`#appt-${key}`);
     const renderAppointments = () => {
@@ -287,6 +331,7 @@
       const cancelId = event.target.dataset.cancel, editId = event.target.dataset.edit;
       try {
         if (cancelId && confirm('Cancel this appointment? A cancellation email will be sent.')) {
+          event.target.disabled = true; event.target.setAttribute('aria-busy', 'true');
           await postJson(`/api/appointments/${cancelId}/cancel`, {});
           appointments = (await api(`/api/requests/${id}/appointments`)).appointments;
           renderAppointments();
@@ -299,14 +344,17 @@
           apptForm.querySelector('[data-reset]').classList.remove('d-none');
           apptField('when').focus();
         }
-      } catch (e) { show(apptStatus, 'danger', e.message); }
+      } catch (e) { if (event.target?.disabled) event.target.disabled = false; show(apptStatus, 'danger', e.message); }
     });
     if (apptForm) {
       apptForm.querySelector('[data-reset]').addEventListener('click', resetForm);
       apptForm.addEventListener('submit', async event => {
         event.preventDefault();
+        const submit = apptForm.querySelector('button[type=submit]');
+        if (submit.disabled) return;
         const when = apptField('when').value;
         if (!when) return show(apptStatus, 'warning', 'Choose a date and time.');
+        submit.disabled = true; submit.setAttribute('aria-busy', 'true');
         try {
           await postJson(editing ? `/api/appointments/${editing}/reschedule` : `/api/requests/${id}/appointments`, { startsAt: new Date(when).toISOString(), durationMin: Number(apptField('len').value), kind: apptField('kind').value, location: apptField('where').value, notes: apptField('notes').value });
           appointments = (await api(`/api/requests/${id}/appointments`)).appointments;
@@ -314,6 +362,7 @@
           resetForm();
           show(apptStatus, 'success', 'Saved. The customer was emailed a confirmation with a calendar invite.');
         } catch (e) { show(apptStatus, 'danger', e.message); }
+        finally { submit.disabled = false; submit.removeAttribute('aria-busy'); }
       });
     }
     const apptPanel = request.status === 'draft' ? '' : el('div', { class: 'card card-body p-4 mb-4' }, el('h3', { class: 'h5', text: 'Appointments' }), apptList, apptForm || '', apptStatus);
@@ -329,8 +378,8 @@
     const statusSelect = el('select', { class: 'form-select w-auto', id: 'ticket-status', 'aria-label': 'Request status' }, ...Object.entries(STAFF_LABELS).map(([v, l]) => el('option', { value: v, text: l, ...(v === request.status ? { selected: '' } : {}) })));
     const prioritySelect = el('select', { class: 'form-select w-auto', id: 'ticket-priority', 'aria-label': 'Request priority' }, ...[['low', 'Low'], ['normal', 'Normal'], ['high', 'High'], ['urgent', 'Urgent']].map(([v, l]) => el('option', { value: v, text: l, ...(v === (request.priority || 'normal') ? { selected: '' } : {}) })));
     const staffBar = staff ? el('div', { class: 'card card-body p-3 mb-4 d-flex flex-row flex-wrap align-items-center gap-3' }, el('label', { class: 'fw-semibold', for: 'ticket-status', text: 'Status' }), statusSelect, el('label', { class: 'fw-semibold', for: 'ticket-priority', text: 'Priority' }), prioritySelect, el('span', { class: 'text-muted small', text: 'Changing the status emails the customer.' })) : '';
-    prioritySelect.addEventListener('change', async () => { try { await postJson(`/api/requests/${id}/priority`, { priority: prioritySelect.value }); await refresh(); } catch (e) { show(status, 'danger', e.message); } });
-    statusSelect.addEventListener('change', async () => { try { await postJson(`/api/requests/${id}/status`, { status: statusSelect.value }); await refresh(); } catch (e) { show(status, 'danger', e.message); } });
+    prioritySelect.addEventListener('change', async () => { prioritySelect.disabled = true; try { await postJson(`/api/requests/${id}/priority`, { priority: prioritySelect.value }); await refresh(); } catch (e) { show(status, 'danger', e.message); } finally { prioritySelect.disabled = false; } });
+    statusSelect.addEventListener('change', async () => { statusSelect.disabled = true; try { await postJson(`/api/requests/${id}/status`, { status: statusSelect.value }); await refresh(); } catch (e) { show(status, 'danger', e.message); } finally { statusSelect.disabled = false; } });
 
     // Draft: add photos, then send to our team
     const draftFile = el('input', { class: 'form-control', id: 'more-photos', type: 'file', accept: MEDIA_ACCEPT, multiple: '' });
@@ -344,7 +393,7 @@
       const problem = checkFiles(files);
       if (problem) return show(status, 'danger', problem);
       draftAdd.disabled = true;
-      try { await uploadPhotos(id, files, status); location.reload(); } catch (e) { show(status, 'danger', e.message); draftAdd.disabled = false; }
+      try { await uploadPhotos(id, files, status); location.reload(); } catch (e) { if (!status.children.length) show(status, 'danger', e.message); status.append(el('div', { class: 'fw-semibold mt-2 text-danger', text: e.message })); draftAdd.disabled = false; }
     });
     draftSend.addEventListener('click', async () => {
       draftSend.disabled = true;
@@ -377,11 +426,7 @@
       if (!text && !chosen.length) return show(status, 'warning', 'Write a message or add a photo or video first.');
       sendMessage.disabled = true;
       try {
-        const photoIds = [];
-        for (const [i, c] of chosen.entries()) {
-          show(status, 'secondary', `Uploading file ${i + 1} of ${chosen.length}...`);
-          photoIds.push((await uploadFile(id, c.file, c.caption.trim(), pct => { status.textContent = `Uploading file ${i + 1} of ${chosen.length} (${pct}%)...`; })).id);
-        }
+        const photoIds = await uploadPhotos(id, chosen, status);
         await postJson(`/api/requests/${id}/messages`, { body: text, photoIds, ...(staff ? { internal: internal.checked } : {}) });
         body.value = '';
         for (const c of chosen) URL.revokeObjectURL(c.url);
@@ -391,12 +436,17 @@
         status.className = 'form-status mt-3';
         status.textContent = '';
         await refresh();
-      } catch (e) { show(status, 'danger', e.message); }
+      } catch (e) {
+        if (e.uploadItems) {
+          status.className = 'form-status mt-3 alert alert-danger';
+          status.append(el('div', { class: 'fw-semibold mt-2', text: e.message }));
+        } else show(status, 'danger', e.message);
+      }
       sendMessage.disabled = false;
     });
     const canClose = !staff && !['draft', 'closed'].includes(request.status);
     const closeButton = canClose ? el('button', { class: 'btn btn-outline-dark', type: 'button', text: request.status === 'resolved' ? 'Close request' : 'Mark as resolved' }) : '';
-    if (canClose) closeButton.addEventListener('click', async () => { try { await postJson(`/api/requests/${id}/status`, { status: request.status === 'resolved' ? 'closed' : 'resolved' }); location.reload(); } catch (e) { show(status, 'danger', e.message); } });
+    if (canClose) closeButton.addEventListener('click', async () => { closeButton.disabled = true; closeButton.setAttribute('aria-busy', 'true'); try { await postJson(`/api/requests/${id}/status`, { status: request.status === 'resolved' ? 'closed' : 'resolved' }); location.reload(); } catch (e) { show(status, 'danger', e.message); closeButton.disabled = false; closeButton.removeAttribute('aria-busy'); } });
     const composer = el('div', { class: 'card card-body p-4 mt-3' },
       el('label', { class: 'form-label fw-semibold', for: 'ticket-body', text: staff ? 'Reply' : 'Add a message' }), body,
       el('label', { class: 'form-label mt-3', for: 'ticket-photos', text: 'Attach photos (up to 8 MB) or videos (MP4, MOV or WebM, up to 100 MB)' }), files, previews,
@@ -472,7 +522,13 @@
     };
     const render = async e => {
       const note = el('div', { class: 'mt-3', role: 'status', 'aria-live': 'polite' });
-      const act = fn => async () => { try { await fn(); } catch (error) { show(note, 'danger', error.message); } };
+      const act = fn => async event => {
+        const button = event?.currentTarget, label = button?.textContent;
+        if (button?.dataset.pending) return;
+        if (button) { button.dataset.pending = '1'; button.disabled = true; button.setAttribute('aria-busy', 'true'); button.textContent = 'Working…'; }
+        try { await fn(); } catch (error) { show(note, 'danger', error.message); }
+        finally { if (button?.isConnected) { button.disabled = false; button.textContent = label; button.removeAttribute('aria-busy'); delete button.dataset.pending; } }
+      };
       const t = e.totals, optionBoxes = new Map();
       const live = () => {
         const extra = e.items.filter(i => i.optional && optionBoxes.get(i.id)?.checked).reduce((a, i) => a + i.priceCents, 0);

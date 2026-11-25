@@ -45,6 +45,8 @@ test('field reports: daily check-ins, photos and liability consent', async () =>
     // Daily report rules and one report per day
     const report = { status: 'delayed', percent: 40, summary: 'Set the pan.', remaining: 'Tile walls', problems: '' };
     assert.equal((await call('hank', 'POST', `${url}/report`, report)).res.status, 400);
+    assert.equal((await call('hank', 'POST', `${url}/report`, { ...report, problems: 'Delay', date: '2026-02-31' })).res.status, 400);
+    assert.equal((await call('hank', 'POST', `${url}/report`, { ...report, problems: 'Delay', percent: 40.5 })).res.status, 400);
     assert.equal((await call('hank', 'POST', `${url}/report`, { ...report, problems: 'Wall was out of plumb' })).res.status, 201);
     const again = await call('hank', 'POST', `${url}/report`, { ...report, status: 'on_track', percent: 55 });
     assert.equal(again.data.reports.length, 1);
@@ -54,6 +56,8 @@ test('field reports: daily check-ins, photos and liability consent', async () =>
     // Uploads are identified by content
     const up = (data, kind) => call('hank', 'POST', `${url}/media`, data, { 'Content-Type': 'application/octet-stream', 'X-Kind': kind, 'X-Phase': 'tile', 'X-Caption': 'Wall' });
     assert.equal((await up(Buffer.from('not an image at all'), 'progress')).res.status, 415);
+    assert.equal((await up(JPEG, 'unknown')).res.status, 400);
+    assert.equal((await call('hank', 'POST', `${url}/media`, JPEG, { 'Content-Type': 'application/octet-stream', 'X-Kind': 'progress', 'X-Phase': 'unknown' })).res.status, 400);
     const photo = await up(JPEG, 'progress');
     assert.equal(photo.res.status, 201);
     const video = (await up(MP4, 'consent')).data.id;
@@ -63,14 +67,25 @@ test('field reports: daily check-ins, photos and liability consent', async () =>
 
     // Liability: permission needs a video and a signature; a refusal is recorded and alerts the office
     const item = { type: 'existing_damage', description: 'Cracked vanity top', homeowner: 'Pat Owner', consented: true };
+    assert.equal((await call('hank', 'POST', `${url}/liability`, { ...item, consented: 'true' })).res.status, 400);
     assert.equal((await call('hank', 'POST', `${url}/liability`, { ...item, signature: `data:image/png;base64,${PNG.toString('base64')}` })).res.status, 400);
     assert.equal((await call('hank', 'POST', `${url}/liability`, { ...item, videoId: video, signature: '' })).res.status, 400);
     const saved = await call('hank', 'POST', `${url}/liability`, { ...item, videoId: video, signature: `data:image/png;base64,${PNG.toString('base64')}` });
     assert.equal(saved.res.status, 201);
     assert.ok(saved.data.liabilities[0].signatureUrl && saved.data.liabilities[0].videoUrl);
+    assert.equal((await call('hank', 'POST', `${url}/liability`, { ...item, consented: false, videoId: video })).res.status, 400);
     const refused = await call('hank', 'POST', `${url}/liability`, { ...item, consented: false });
     assert.equal(refused.res.status, 201);
+    assert.equal(refused.data.liabilities[0].consented, false);
+    assert.equal(refused.data.liabilities[0].signatureUrl, '');
+    assert.equal(refused.data.liabilities[0].videoUrl, '');
+    assert.match(refused.data.liabilities[0].consentText, /did NOT agree/);
+    assert.match(refused.data.consentPrivacy, /retained|retention/i);
     assert.ok(sent.some(m => /HOMEOWNER DECLINED/.test(m.subject)));
+    const duplicateDecline = await call('hank', 'POST', `${url}/liability`, { ...item, consented: false });
+    assert.equal(duplicateDecline.res.status, 200);
+    assert.equal(duplicateDecline.data.duplicate, true);
+    assert.equal(duplicateDecline.data.liabilities.length, 2);
 
     // Admin sees everything, can open files and review records
     const all = await call('admin', 'GET', `/api/admin/jobs/${jobId}/field`);

@@ -55,8 +55,14 @@ test('hiring skills test: emailed token, shuffled hidden answers, server grading
     for (const x of t.questions) answers[x.id] = x.o.indexOf(bank[x.id][2][1]);
     assert.ok(Object.values(answers).every(v => v >= 0));
     for (const id of [0, 1, 2, 3]) answers[id] = (answers[id] + 1) % 4;
-    const done = await call('web', 'POST', '/api/applications/test', { token, trade: 'Plumber', answers });
-    assert.equal(done.res.status, 200);
+    assert.equal((await call('web', 'POST', '/api/applications/test', { token, trade: 'Plumber', answers: [] })).res.status, 400);
+    assert.equal((await call('web', 'POST', '/api/applications/test', { token, trade: 'Plumber', answers: { ...answers, unknown: 2 } })).res.status, 400);
+    assert.equal((await call('web', 'POST', '/api/applications/test', { token, trade: 'Plumber', answers: { 0: 99 } })).res.status, 400);
+    const submissions = await Promise.all([
+      call('web', 'POST', '/api/applications/test', { token, trade: 'Plumber', answers, attemptId: t.attemptId }),
+      call('web', 'POST', '/api/applications/test', { token, trade: 'Plumber', answers, attemptId: t.attemptId })
+    ]);
+    assert.deepEqual(submissions.map(x => x.res.status).sort(), [200, 409]);
     assert.equal((await call('web', 'POST', '/api/applications/test', { token, trade: 'Plumber', answers })).res.status, 409);
     assert.equal((await call('web', 'GET', `/api/applications/test?token=${token}&trade=Plumber`)).res.status, 409);
 

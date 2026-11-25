@@ -41,6 +41,7 @@ test('onboarding: forms, contract, experience, training, sign-off and gating', a
     assert.equal((await call('hank', 'GET', '/api/employee/jobs')).res.status, 403);
     assert.equal((await call('hank', 'GET', '/api/employee/clock')).res.status, 403);
     assert.equal((await call('hank', 'POST', '/api/employee/clock/in', { consent: true })).res.status, 403);
+    assert.equal((await call('admin', 'POST', `/api/admin/onboarding/${empId}/signoff`, { note: 'Too soon' })).res.status, 409);
     assert.equal((await call('anon', 'GET', '/api/employee/onboarding')).res.status, 401);
     assert.equal((await call('hank', 'GET', '/api/admin/onboarding')).res.status, 403);
 
@@ -58,6 +59,7 @@ test('onboarding: forms, contract, experience, training, sign-off and gating', a
     assert.equal(signed.data.stage, 'experience');
     assert.equal((await hank('POST', '/contract', { signName: 'Hank Handy', agree: true, locationConsent: true })).res.status, 409);
     assert.equal((await hank('GET', '/training/conduct')).res.status, 404, 'training waits for the experience profile');
+    assert.equal((await hank('GET', '')).data.contract.locationConsent.includes('retained'), true);
 
     // Experience profile must rate every task
     const tasks = Object.fromEntries(training.TASKS.map(([k]) => [k, 0]));
@@ -86,13 +88,16 @@ test('onboarding: forms, contract, experience, training, sign-off and gating', a
       for (const x of qs) { const o = ordered[x.id].o, correct = o.findIndex(v => v.i === 0); out[x.id] = right ? correct : (correct + 1) % 4; }
       return out;
     };
-    const failed = (await hank('POST', '/training/clock-gps', { answers: answerFor('clock-gps', lesson.questions, 0, false) })).data;
+    assert.equal((await hank('POST', '/training/clock-gps', { answers: [], attempt: 0 })).res.status, 400);
+    assert.equal((await hank('POST', '/training/clock-gps', { answers: { ...answerFor('clock-gps', lesson.questions, 0, false), unknown: 1 }, attempt: 0 })).res.status, 400);
+    const failed = (await hank('POST', '/training/clock-gps', { answers: answerFor('clock-gps', lesson.questions, 0, false), attempt: 0 })).data;
     assert.equal(failed.passed, false);
     assert.ok(failed.missed.length === 5 && failed.missed[0].correct);
     const retry = (await hank('GET', '/training/clock-gps')).data;
     assert.equal(retry.attempts, 1);
-    const passed = (await hank('POST', '/training/clock-gps', { answers: answerFor('clock-gps', retry.questions, 1) })).data;
+    const passed = (await hank('POST', '/training/clock-gps', { answers: answerFor('clock-gps', retry.questions, 1), attempt: 1 })).data;
     assert.equal(passed.passed, true);
+    assert.equal((await hank('POST', '/training/clock-gps', { answers: answerFor('clock-gps', retry.questions, 1), attempt: 1 })).res.status, 409);
 
     for (const mod of training.MODULES.slice(1)) {
       const l = (await hank('GET', `/training/${mod.key}`)).data;
@@ -125,6 +130,7 @@ test('onboarding: forms, contract, experience, training, sign-off and gating', a
 
     const signoff = await call('admin', 'POST', `/api/admin/onboarding/${empId}/signoff`, { note: 'Great scores' });
     assert.equal(signoff.res.status, 200);
+    assert.equal((await call('admin', 'POST', `/api/admin/onboarding/${empId}/signoff`, { note: 'Great scores' })).data.duplicate, true);
     assert.equal((await call('hank', 'GET', '/api/employee/me')).data.onboarding, '');
     assert.equal((await call('hank', 'GET', '/api/employee/jobs')).res.status, 200);
     assert.equal((await call('hank', 'GET', '/api/employee/clock')).res.status, 200);
