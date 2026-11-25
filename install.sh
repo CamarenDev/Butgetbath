@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Budget Bath Solutions: one-command installer for Ubuntu/Debian servers.
 #
-#   sudo ./install.sh                       interactive install (asks a few questions)
-#   sudo ./install.sh --yes --domain example.com --admin-email you@example.com --notify-email you@example.com
+#   sudo ./install.sh                       install with the built-in domain and admin email (no questions)
+#   sudo ./install.sh --domain example.com --admin-email you@example.com   override any default
 #
 # What it does: installs Node 24, copies the site to /opt/budgetbath, creates a locked-down service user,
 # writes the settings file, builds the site, runs it as a systemd service behind nginx (with free HTTPS
@@ -22,6 +22,10 @@ PORT=3000
 NODE_MAJOR=24
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Built-in defaults so nothing has to be typed in; every one can still be overridden with an option.
+DEFAULT_DOMAIN="budgetbathsolutions.com"
+DEFAULT_ADMIN_EMAIL="lcamarerna1@gmail.com"
+DEFAULT_DEV_EMAIL="lcamarerna1+dev@gmail.com"   # Gmail delivers +dev mail to the same inbox
 DOMAIN="" ADMIN_EMAIL="" DEV_EMAIL="" NOTIFY_EMAIL="" PHONE="" RESEND_KEY="" LE_EMAIL=""
 ASSUME_YES=0 WITH_NGINX=1 WITH_SSL=1 WITH_FIREWALL=1 RUN_TESTS=0 UNINSTALL=0
 
@@ -36,10 +40,10 @@ trap 'printf "\n%s✖ Install stopped at line %s. Nothing is half-configured tha
 usage() {
   cat <<EOF
 Usage: sudo ./install.sh [options]
-  --domain NAME          public domain (example.com); enables nginx virtual host and HTTPS
-  --admin-email EMAIL    admin account, created with a temporary password (default admin@DOMAIN)
-  --dev-email EMAIL      developer account, also allowed into the admin portal (default dev@DOMAIN)
-  --notify-email EMAIL   where leads, bookings and alerts are sent
+  --domain NAME          public domain (default $DEFAULT_DOMAIN); enables nginx virtual host and HTTPS
+  --admin-email EMAIL    admin account, created with a temporary password (default $DEFAULT_ADMIN_EMAIL)
+  --dev-email EMAIL      developer account, also allowed into the admin portal (default $DEFAULT_DEV_EMAIL)
+  --notify-email EMAIL   where leads, bookings and alerts are sent (default $DEFAULT_ADMIN_EMAIL)
   --phone NUMBER         business phone shown on the site and in emails
   --resend-key KEY       Resend API key for sending email
   --letsencrypt-email E  contact email for the HTTPS certificate (defaults to the admin email)
@@ -115,20 +119,12 @@ ok "Internet reachable"
 
 get_env_early() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$ENV_FILE" | head -1 || true; }
 
-# ---------------------------------------------------------------- questions
-if [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
-  printf '\n%sA few questions (press Enter to skip any of them; you can edit %s later)%s\n' "$B" "$ENV_FILE" "$N"
-fi
-ask DOMAIN "Website domain, e.g. budgetbathsolutions.com (blank = use the server IP, no HTTPS)"
-ask ADMIN_EMAIL "Admin email (blank = admin@your-domain)"
-ask DEV_EMAIL "Developer email (blank = dev@your-domain)"
-MAIL_DOMAIN="${DOMAIN#www.}"; MAIL_DOMAIN="${MAIL_DOMAIN:-budgetbath.local}"
-[ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="$(get_env_early ADMIN_EMAILS | cut -d, -f1)"
-[ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="admin@$MAIL_DOMAIN"
-[ -z "$DEV_EMAIL" ] && DEV_EMAIL="dev@$MAIL_DOMAIN"
-ask NOTIFY_EMAIL "Email for new leads, bookings and alerts" "$ADMIN_EMAIL"
-ask PHONE "Business phone number shown on the site"
-ask RESEND_KEY "Resend API key for sending email (blank = emails are only logged)"
+# ---------------------------------------------------------------- defaults
+# Nothing is asked: the domain and all admin emails are built in (override with the options above).
+[ -z "$DOMAIN" ] && DOMAIN="$DEFAULT_DOMAIN"
+[ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="$DEFAULT_ADMIN_EMAIL"
+[ -z "$DEV_EMAIL" ] && DEV_EMAIL="$DEFAULT_DEV_EMAIL"
+[ -z "$NOTIFY_EMAIL" ] && NOTIFY_EMAIL="$ADMIN_EMAIL"
 DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN%%/*}"
 [ -z "$DOMAIN" ] && WITH_SSL=0
 [ -z "$LE_EMAIL" ] && LE_EMAIL="$ADMIN_EMAIL"
@@ -248,16 +244,22 @@ runas() { runuser -u "$APP_USER" -- env -i HOME="$DATA_DIR" PATH="$PATH" bash -c
 runas "node build.js" | tail -2
 [ -s "$APP_DIR/dist/index.html" ] || die "The build did not produce dist/index.html."
 ok "Site built"
+# The build also writes the SEO files; the service keeps them fresh when content changes (lib/seo-sync.js).
+install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$APP_DIR/data"
+for f in sitemap.xml robots.txt llms.txt llms-full.txt humans.txt site.webmanifest; do
+  [ -s "$APP_DIR/dist/$f" ] || die "The build did not produce the SEO file $f."
+done
+ok "SEO files generated: sitemap.xml ($(grep -c '<loc>' "$APP_DIR/dist/sitemap.xml") URLs), robots.txt, llms.txt, llms-full.txt, humans.txt, site.webmanifest"
 
 # ---------------------------------------------------------------- accounts
 step "Creating the admin and developer accounts"
 CRED_FILE=/root/budgetbath-credentials.txt
 ACCOUNT_OUT="$(runas "node scripts/create-accounts.js --data-dir '$DATA_DIR' --admin-email '$ADMIN_EMAIL' --dev-email '$DEV_EMAIL'")" || die "Could not create the admin and developer accounts."
-NEW_ACCOUNTS=""
+NEW_ACCOUNTS="" ALL_ACCOUNTS=""
 while IFS=$'\t' read -r state role email password; do
   case "$state" in
-    CREATED) ok "Created $role account $email"; NEW_ACCOUNTS+="$role: $email    temporary password: $password"$'\n' ;;
-    EXISTS) ok "The $role account $email already exists (password unchanged)" ;;
+    CREATED) ok "Created $role account $email"; NEW_ACCOUNTS+="$role: $email    temporary password: $password"$'\n'; ALL_ACCOUNTS+="$role: $email    temporary password: $password"$'\n' ;;
+    EXISTS) ok "The $role account $email already exists (password unchanged)"; ALL_ACCOUNTS+="$role: $email    (already existed; password unchanged)"$'\n' ;;
   esac
 done <<< "$ACCOUNT_OUT"
 if [ -n "$NEW_ACCOUNTS" ]; then
@@ -376,12 +378,14 @@ check "Runs as the unprivileged user" bash -c "[ \"\$(ps -o user= -p \$(systemct
 LOCAL="http://127.0.0.1:$PORT"
 expect "Health check (/healthz)" "$LOCAL/healthz" '"ok"'
 expect "Home page" "$LOCAL/" 'Budget Bath'
-expect "Booking page (/book/)" "$LOCAL/book/" 'data-booking'
+expect "Booking page (/book/)" "$LOCAL/book/" 'name="phone"'
 expect "Booking availability API" "$LOCAL/api/book/config" '"enabled"'
 expect "Services page" "$LOCAL/services/" '<h1'
 expect "sitemap.xml" "$LOCAL/sitemap.xml" '<urlset'
 expect "robots.txt" "$LOCAL/robots.txt" 'Sitemap'
 expect "llms.txt" "$LOCAL/llms.txt" '.'
+expect "llms-full.txt" "$LOCAL/llms-full.txt" '.'
+expect "Page metadata (canonical, structured data)" "$LOCAL/" 'rel="canonical".*|application/ld\+json'
 for p in /admin/ /account/ /employee/ /estimator/; do
   [ "$(http_code "$LOCAL$p")" = 200 ] && ok "Portal page $p loads" || { printf '  %s✖%s Portal page %s\n' "$R" "$N" "$p"; FAILS=$((FAILS + 1)); }
 done
@@ -423,10 +427,11 @@ if [ "$FAILS" -gt 0 ]; then
   exit 1
 fi
 printf '%s✔ Installed and verified. Your website is live at %s%s\n' "$G$B" "$SITE_URL" "$N"
-if [ -n "$NEW_ACCOUNTS" ]; then
+if [ -n "$ALL_ACCOUNTS" ]; then
   printf '\n%sSign-in accounts (temporary passwords; you must change them at first sign-in)%s\n' "$B" "$N"
-  printf '%s' "$NEW_ACCOUNTS" | sed 's/^/  /'
-  echo "  Also saved to $CRED_FILE"
+  printf '%s' "$ALL_ACCOUNTS" | sed 's/^/  /'
+  [ -n "$NEW_ACCOUNTS" ] && echo "  Also saved to $CRED_FILE"
+  printf '  Admin alerts, leads and bookings go to: %s\n' "$NOTIFY_EMAIL"
 fi
 [ "$WARNINGS" -gt 0 ] && printf '%s%s item(s) need your attention (see the "!" lines above).%s\n' "$Y" "$WARNINGS" "$N"
 cat <<EOF
