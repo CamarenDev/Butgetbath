@@ -5,6 +5,24 @@ const os = require('node:os');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { createServer } = require('../server');
+const { effectiveRule, reconcileActuals, validDate } = require('../lib/accounting');
+
+test('accounting rules are effective-dated and reconciliation preserves zero versus missing', () => {
+  assert.equal(validDate('2026-02-30'), false);
+  assert.equal(validDate('2026-02-28'), true);
+  assert.equal(effectiveRule('mileage', '2025-12-31').value, 0.7);
+  assert.equal(effectiveRule('mileage', '2026-01-01').value, 0.725);
+  assert.equal(effectiveRule('mileage', '2026-01-01').verificationStatus, 'provisional');
+  assert.throws(() => effectiveRule('mileage', '2026-02-30'), /calendar date/);
+  const zero = reconcileActuals({ approvedHours: 0, approvedLaborCents: 0, paidLaborCents: 0, expenseCents: 0, estimateActualCents: 0 });
+  assert.deepEqual(zero.explicitZero, ['approvedHours', 'approvedLaborCents', 'paidLaborCents', 'expenseCents', 'estimateActualCents']);
+  assert.equal(zero.state, 'reconciled');
+  const missing = reconcileActuals({ approvedLaborCents: 0, expenseCents: 0 });
+  assert.equal(missing.estimateActualCents, null);
+  assert.ok(missing.missing.includes('estimateActualCents'));
+  assert.equal(missing.state, 'incomplete');
+  assert.throws(() => reconcileActuals({ approvedHours: Infinity }), /finite/);
+});
 
 test('accounting: expenses, income, 1099s, compliance and exports', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-acct-'));
@@ -47,6 +65,7 @@ test('accounting: expenses, income, 1099s, compliance and exports', async () => 
     db.prepare('INSERT INTO payments (employee_id, amount_cents, paid_on, created_at) VALUES (?, 250000, ?, ?)').run(empId, day, day);
     db.close();
     await call('admin', 'POST', '/api/admin/accounting/docs', { kind: 'insurance_gl', title: 'GL policy', expiresOn: `${year - 1}-01-01` });
+    assert.equal((await call('admin', 'POST', '/api/admin/accounting/docs', { kind: 'insurance_gl', title: 'Reversed dates', issuedOn: `${year}-03-10`, expiresOn: `${year}-03-09` })).res.status, 400);
 
     const d = (await call('admin', 'GET', `/api/admin/accounting?year=${year}`)).data;
     assert.equal(d.summary.grossReceiptsCents, 100000);
@@ -56,6 +75,9 @@ test('accounting: expenses, income, 1099s, compliance and exports', async () => 
     assert.equal(d.summary.contractorCents, 250000);
     assert.equal(d.contractors[0].needs1099, true);
     assert.equal(d.summary.netProfitCents, d.summary.revenueCents - d.summary.expenseTotalCents);
+    assert.equal(d.summary.tax.verificationStatus, 'provisional');
+    assert.equal(d.reconciliation.state, 'incomplete');
+    assert.equal(d.reconciliation.approvedHours, 0);
     assert.ok(d.alerts.some(a => /W-9/.test(a.message)) && d.alerts.some(a => /1099-NEC/.test(a.message)));
     assert.equal(d.compliance.checklist.find(c => c.kind === 'insurance_gl').status, 'expired');
     assert.equal(d.compliance.checklist.find(c => c.kind === 'ein').status, 'missing');
@@ -68,6 +90,7 @@ test('accounting: expenses, income, 1099s, compliance and exports', async () => 
     assert.equal(zip.readUInt32LE(0), 0x04034b50);
     fs.writeFileSync(path.join(dataDir, 'p.zip'), zip);
     assert.ok(zip.includes('1099-nec-worksheet.csv') && zip.includes('summary.pdf'));
+    assert.ok(zip.includes('reconciliation.csv'));
     assert.equal((await fetch(`${base}/api/admin/accounting/export?type=expenses`, { headers: { Cookie: jar.hank } })).status, 403);
   } finally {
     await new Promise(resolve => server.close(resolve));

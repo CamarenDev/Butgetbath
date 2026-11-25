@@ -4,6 +4,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createServer } = require('../server');
+const permits = require('../lib/permits');
+
+test('permit assumptions are visibly provisional and reject impossible dates and ranges', () => {
+  const review = permits.reviewFor('Plumbing', 'standard', null, null);
+  assert.equal(review.verificationStatus, 'provisional');
+  assert.equal(review.qualified, true);
+  const learned = permits.reviewFor('Plumbing', 'standard', null, { n: 3, min: 2, max: 4 });
+  assert.equal(learned.range[1], 4);
+  assert.equal(learned.qualified, false);
+  assert.throws(() => permits.reviewFor('Plumbing', 'standard', null, { n: 3, min: 5, max: 2 }), /ordered range/);
+  assert.throws(() => permits.timeline({ startDate: '2026-02-30', items: [{ review: { range: [1, 3], source: 'reference' } }] }), /calendar date/);
+});
 
 test('permit tracking: admin records, inspections, customer view, hidden internal notes', async () => {
   const sent = [];
@@ -30,6 +42,7 @@ test('permit tracking: admin records, inspections, customer view, hidden interna
     assert.equal((await call('anon', 'GET', url)).res.status, 401);
     assert.equal((await call('admin', 'POST', url, { type: 'Nonsense' })).res.status, 400);
     assert.equal((await call('admin', 'POST', url, { type: 'Plumbing', appliedOn: '2026-13-45' })).res.status, 400);
+    assert.equal((await call('admin', 'POST', url, { type: 'Plumbing', appliedOn: '2026-03-10', issuedOn: '2026-03-09' })).res.status, 400);
     const made = await call('admin', 'POST', url, { type: 'Plumbing', city: 'Aurora', description: 'Move drain', fee: 125 });
     assert.equal(made.data.permits.length, 1);
     const pid = made.data.permits[0].id;
