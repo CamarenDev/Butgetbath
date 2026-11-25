@@ -479,16 +479,16 @@
 
   const jobList = async () => {
     const r = await api('/api/admin/jobs');
-    const f = { title: input('Title', { maxlength: 150 }), area: input('Area / neighborhood (shown to all employees)', { maxlength: 100 }), address: input('Address (only shown to assigned employees)', { maxlength: 300 }), scheduledAt: input('Scheduled', { maxlength: 40, placeholder: 'e.g. 2025-06-02 8:00 AM' }) };
+    const f = { title: input('Title', { maxlength: 150 }), area: input('Area / neighborhood (shown to all employees)', { maxlength: 100 }), address: input('Address (only shown to assigned employees)', { maxlength: 300 }), scheduledAt: input('Scheduled', { maxlength: 40, placeholder: 'e.g. 2025-06-02 8:00 AM' }), dueAt: input('Finish by (crew gets warnings before this time)', { type: 'datetime-local' }) };
     const desc = input('Description', { rows: 3, maxlength: 5000 }, 'textarea');
     view.replaceChildren(
-      panel('Post a job', el('div', { class: 'row' }, Object.values(f).map(x => el('div', { class: 'col-md-6' }, x.wrap))), desc.wrap, btn('Create job', async () => { const v = Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.ctl.value])); const j = await send('/api/admin/jobs', 'POST', { ...v, description: desc.ctl.value }); location.hash = `#jobs/${j.id}`; }, 'btn-primary')),
+      panel('Post a job', el('div', { class: 'row' }, Object.values(f).map(x => el('div', { class: 'col-md-6' }, x.wrap))), desc.wrap, btn('Create job', async () => { const v = Object.fromEntries(Object.entries(f).map(([k, x]) => [k, k === 'dueAt' && x.ctl.value ? new Date(x.ctl.value).toISOString() : x.ctl.value])); const j = await send('/api/admin/jobs', 'POST', { ...v, description: desc.ctl.value }); location.hash = `#jobs/${j.id}`; }, 'btn-primary')),
       panel('Jobs', r.jobs.length ? tableOf(['Job', 'Area', 'Team', 'Status', ''], r.jobs.map(j => el('tr', {}, el('td', {}, el('a', { href: `#jobs/${j.id}`, class: 'fw-semibold', text: `#${j.id} ${j.title}` }), el('div', { class: 'small text-muted', text: j.customerName })), el('td', { text: j.area }), el('td', { text: j.team }), el('td', {}, sBadge(j.status)), el('td', {}, j.interest ? badge(`${j.interest} interested`, 'warning') : null)))) : empty('No jobs yet.')));
   };
   const jobDetail = async id => {
     const field = await api(`/api/admin/jobs/${id}/field`);
     const d = await api(`/api/admin/jobs/${id}`), j = d.job, base = `/api/admin/jobs/${id}`, refresh = () => jobDetail(id);
-    const f = { title: input('Title', { value: j.title, maxlength: 150 }), area: input('Area', { value: j.area, maxlength: 100 }), address: input('Address', { value: j.address, maxlength: 300 }), scheduledAt: input('Scheduled', { value: j.scheduledAt, maxlength: 40 }),
+    const f = { title: input('Title', { value: j.title, maxlength: 150 }), area: input('Area', { value: j.area, maxlength: 100 }), address: input('Address', { value: j.address, maxlength: 300 }), scheduledAt: input('Scheduled', { value: j.scheduledAt, maxlength: 40 }), dueAt: input('Finish by (crew gets warnings before this time)', { type: 'datetime-local', value: j.dueAt ? new Date(new Date(j.dueAt) - new Date(j.dueAt).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '' }),
       status: select('Status', d.statuses.map(s => [s, s.replace('_', ' ')]), j.status), customerId: select('Customer', [['', 'None'], ...d.customers.map(c => [c.id, c.name])], j.customerId ?? '') };
     const desc = input('Description', { rows: 4, maxlength: 5000 }, 'textarea'); desc.ctl.value = j.description;
     const assigned = new Set(d.assigned.map(a => a.id)), boxes = d.employees.map(e => ({ e, box: el('input', { class: 'form-check-input', type: 'checkbox', id: `as-${e.id}`, checked: assigned.has(e.id) }) }));
@@ -497,7 +497,7 @@
     view.replaceChildren(
       el('p', {}, el('a', { href: '#jobs', text: '\u2190 All jobs' })),
       panel(`Job #${j.id}`, el('div', { class: 'row' }, Object.values(f).map(x => el('div', { class: 'col-md-6' }, x.wrap))), desc.wrap,
-        el('div', { class: 'd-flex gap-2' }, btn('Save job', async () => { await send(base, 'POST', { ...Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.ctl.value])), description: desc.ctl.value }); toast('Saved'); await refresh(); }, 'btn-primary'),
+        el('div', { class: 'd-flex gap-2' }, btn('Save job', async () => { await send(base, 'POST', { ...Object.fromEntries(Object.entries(f).map(([k, x]) => [k, k === 'dueAt' && x.ctl.value ? new Date(x.ctl.value).toISOString() : x.ctl.value])), description: desc.ctl.value }); toast('Saved'); await refresh(); }, 'btn-primary'),
           btn('Delete job', async () => { if (confirm('Delete this job?')) { await send(`${base}/delete`, 'POST'); location.hash = '#jobs'; } }, 'btn-outline-danger'))),
       panel('Job site (GPS)', el('p', { class: 'small text-muted', text: 'Employees must be inside this circle to clock in. If they leave it for more than a few minutes the time is unpaid, you are alerted, and they are clocked out automatically after 20 minutes away. Stand at the site and use "Use my current location".' }),
         el('div', { class: 'row' }, Object.values(site).map(x => el('div', { class: 'col-md-4' }, x.wrap))),
@@ -840,7 +840,7 @@
     let tools = (await api('/api/tools/library')).tools;
     const draw = () => {
       const term = search.ctl.value.trim().toLowerCase(), shown = tools.filter(t => !term || `${t.name} ${t.group}`.toLowerCase().includes(term));
-      const have = tools.filter(t => t.photo).length;
+      const have = tools.filter(t => !t.generated).length;
       const card = t => {
         const file = el('input', { type: 'file', class: 'form-control form-control-sm', accept: 'image/jpeg,image/png,image/webp', 'aria-label': `Photo for ${t.name}` });
         const credit = el('input', { class: 'form-control form-control-sm', maxlength: 200, placeholder: 'Photo credit (who or where from)', value: t.credit, 'aria-label': 'Photo credit' });
@@ -851,11 +851,11 @@
           el('div', { class: 'flex-grow-1' }, el('div', { class: 'fw-bold', text: t.name }), el('div', { class: 'small text-muted', text: `${t.group} \u00b7 ${t.src === 'rent' ? 'rental' : t.src === 'ppe' ? 'safety gear' : t.src === 'supply' ? 'supply' : 'company tool'}` }),
             el('div', { class: 'small mt-1' }, 'Find a photo: ', el('a', { href: `https://www.homedepot.com/s/${q}`, target: '_blank', rel: 'noopener noreferrer', text: 'Home Depot' }), ' \u00b7 ', el('a', { href: `https://www.google.com/search?tbm=isch&q=${q}`, target: '_blank', rel: 'noopener noreferrer', text: 'Google Images' }), ' \u00b7 ', el('a', { href: `https://commons.wikimedia.org/w/index.php?search=${q}&ns6=1`, target: '_blank', rel: 'noopener noreferrer', text: 'Wikimedia (free to use)' })),
             el('div', { class: 'row g-2 mt-1' }, el('div', { class: 'col-md-4' }, file), el('div', { class: 'col-md-4' }, credit), el('div', { class: 'col-md-4' }, source)),
-            el('div', { class: 'mt-2 d-flex gap-2' }, btn(t.photo ? 'Replace photo' : 'Upload photo', async () => {
+            el('div', { class: 'mt-2 d-flex gap-2' }, btn(t.generated ? 'Upload real photo' : 'Replace photo', async () => {
               const f = file.files[0]; if (!f) return toast('Choose a photo first.', 'danger');
               tools = (await api(`/api/admin/tools/photo/${t.key}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Credit': encodeURIComponent(credit.value), 'X-Source-Url': encodeURIComponent(source.value.trim()) }, body: f })).tools;
               toast('Photo saved'); draw();
-            }, 'btn-primary'), t.photo ? btn('Remove', async () => { if (!confirm('Remove this photo?')) return; tools = (await send(`/api/admin/tools/photo/${t.key}/delete`, 'POST')).tools; draw(); }, 'btn-outline-danger') : null))));
+            }, 'btn-primary'), !t.generated ? btn('Remove', async () => { if (!confirm('Remove this photo?')) return; tools = (await send(`/api/admin/tools/photo/${t.key}/delete`, 'POST')).tools; draw(); }, 'btn-outline-danger') : null))));
       };
       box.replaceChildren(el('p', { class: 'text-muted' }, `${have} of ${tools.length} tools have a reference photo. Crew see these next to each item on their tools checklist so they know exactly what to pack. Use photos you took yourself or that you have the right to use, and record the credit.`),
         el('div', { class: 'mb-3' }, search.wrap), shown.length ? shown.map(card) : empty('Nothing matches.'));

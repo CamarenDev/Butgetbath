@@ -70,7 +70,7 @@
   async function jobs(box) {
     const { active, open, history } = await api('/api/employee/jobs');
     const jobCard = (j, mine) => card(null, el('div', { class: 'd-flex flex-wrap justify-content-between gap-2' }, el('strong', { text: `#${j.id} ${j.title}` }), badge(j.status)),
-      el('div', { class: 'text-muted small mb-2', text: [j.area, j.scheduledAt && `Scheduled: ${j.scheduledAt}`].filter(Boolean).join(' \u00b7 ') }),
+      el('div', { class: 'text-muted small mb-2', text: [j.area, j.scheduledAt && `Scheduled: ${j.scheduledAt}`, j.dueAt && `Finish by: ${stamp(j.dueAt)}`].filter(Boolean).join(' \u00b7 ') }),
       j.description ? el('p', { class: 'pre-wrap', text: j.description }) : null,
       mine ? el('div', {}, j.address ? el('p', { class: 'mb-1' }, el('strong', { text: 'Address: ' }), j.address) : null, j.customerName ? el('p', { class: 'mb-2' }, el('strong', { text: 'Customer: ' }), `${j.customerName}${j.customerPhone ? ` (${j.customerPhone})` : ''}`) : null) : null,
       mine ? briefPanel(j) : null,
@@ -258,7 +258,13 @@
     const d = await api('/api/employee/requests');
     const type = field('Type', {}, 'select'), subject = field('Subject', { maxlength: 150 }), body = field('Details', { rows: 4, maxlength: 4000 }, 'textarea');
     for (const [k, v] of Object.entries(d.types)) if (k !== 'job_interest') type.ctl.append(el('option', { value: k, text: v }));
-    box.append(card('Make a request', type.wrap, subject.wrap, body.wrap, button('Send request', async () => { await send('/api/employee/requests', { type: type.ctl.value, subject: subject.ctl.value, body: body.ctl.value }); notice('success', 'Request sent.'); await render(); }, 'btn-brass')),
+    const urgent = el('div', { class: 'alert alert-danger small d-none', role: 'alert', text: 'Urgent requests alert the office right away. If someone is hurt or in danger, call 911 first, then the office.' });
+    type.ctl.addEventListener('change', () => urgent.classList.toggle('d-none', !/^(safety|running_late)$/.test(type.ctl.value)));
+    // Suggest matching knowledge base articles while the employee types a subject, so common questions answer themselves.
+    const hints = el('div', { class: 'small mb-3' });
+    let hintTimer;
+    subject.ctl.addEventListener('input', () => { clearTimeout(hintTimer); hintTimer = setTimeout(async () => { const t = subject.ctl.value.trim(); if (t.length < 4) return hints.replaceChildren(); try { const r = await api(`/api/employee/kb?q=${encodeURIComponent(t)}`); hints.replaceChildren(...(r.articles.length ? [el('span', { class: 'text-muted', text: 'These articles may answer it: ' }), ...r.articles.slice(0, 3).map(a => el('a', { href: '#kb', class: 'me-2', text: a.title }))] : [])); } catch { hints.replaceChildren(); } }, 400); });
+    box.append(card('Make a request', type.wrap, urgent, subject.wrap, hints, body.wrap, button('Send request', async () => { await send('/api/employee/requests', { type: type.ctl.value, subject: subject.ctl.value, body: body.ctl.value }); notice('success', 'Request sent.'); await render(); }, 'btn-brass')),
       card('My requests', d.requests.length ? d.requests.map(r => el('div', { class: 'border-top py-2' }, el('div', { class: 'd-flex flex-wrap gap-2 align-items-center' }, el('strong', { text: r.subject }), badge(r.status), el('span', { class: 'text-muted small', text: `${r.typeLabel} \u00b7 ${stamp(r.createdAt)}` })),
         r.body ? el('div', { class: 'pre-wrap', text: r.body }) : null, r.response ? el('div', { class: 'small mt-1' }, el('strong', { text: 'Reply: ' }), r.response) : null)) : empty('No requests yet.')));
   }
@@ -267,8 +273,10 @@
     const search = field('Search the knowledge base', { type: 'search', placeholder: 'Try "membrane", "permit" or a trade' });
     const list = el('div'), article = el('div');
     const load = async () => {
-      const { articles } = await api(`/api/employee/kb?q=${encodeURIComponent(search.ctl.value)}`);
+      const { articles, popular } = await api(`/api/employee/kb?q=${encodeURIComponent(search.ctl.value)}`);
       list.replaceChildren();
+      if (popular?.length) list.append(el('h3', { class: 'h6 text-uppercase text-muted mt-3', text: 'Most read' }), ...popular.map(a => el('div', { class: 'mb-1' }, el('a', { href: `#kb-${a.id}`, class: 'fw-semibold', onclick: act(async e => { e.preventDefault(); await open(a.id); }), text: a.title }))));
+      if (search.ctl.value.trim()) return list.append(...articles.map(a => el('div', { class: 'mb-2' }, el('a', { href: `#kb-${a.id}`, class: 'fw-semibold', onclick: act(async e => { e.preventDefault(); await open(a.id); }), text: a.title }), el('span', { class: 'small text-muted', text: ` \u00b7 ${a.category}` }), a.summary ? el('div', { class: 'small text-muted', text: a.summary }) : null)), ...(articles.length ? [] : [empty('No articles match your search. Send a request and the office will help.')]));
       if (!articles.length) return list.append(empty(search.ctl.value ? 'No articles match your search.' : 'No articles have been published yet.'));
       for (const category of [...new Set(articles.map(a => a.category))]) {
         list.append(el('h3', { class: 'h6 text-uppercase text-muted mt-3', text: category }), ...articles.filter(a => a.category === category).map(a => el('div', { class: 'mb-2' },
@@ -368,7 +376,7 @@
       if (!this.shiftId) return;
       const points = this.queue.slice(0, 60), events = this.events.splice(0, 20);
       try {
-        const r = await send('/api/employee/clock/ping', { points, events, deviceId: deviceId() });
+        const r = await send('/api/employee/clock/ping', { points, events, deviceId: deviceId(), clientTime: Date.now() });
         this.geofence = r.geofence;
         this.queue.splice(0, points.length); this.save(); this.lastSent = Date.now(); this.listeners.forEach(f => f());
         if (this.queue.length) this.flush();
@@ -465,6 +473,29 @@
     await render();
   }
 
+  // Schedule and deadline warnings from the office system. Polled every minute; unread ones also pop up as phone notifications when allowed.
+  function alertsBar() {
+    const bar = el('div', { class: 'mb-3' });
+    const seen = new Set();
+    let first = true;
+    const SEV = { info: 'info', warning: 'warning', danger: 'danger' };
+    const popup = async a => {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      const [title, ...rest] = a.message.split('\n'), opts = { body: rest.join(' '), tag: `bbs-alert-${a.id}`, icon: '/icon-192.png', requireInteraction: a.severity !== 'info', vibrate: [200, 100, 200] };
+      try { const reg = await navigator.serviceWorker?.getRegistration(); if (reg) await reg.showNotification(title, opts); else new Notification(title, opts); } catch { /* the in-page warning still shows */ }
+    };
+    const draw = async () => {
+      let d; try { d = await api('/api/employee/alerts'); } catch { return; }
+      const unread = d.alerts.filter(a => !a.read);
+      for (const a of unread) { if (!seen.has(a.id) && !first) popup(a); seen.add(a.id); }
+      first = false;
+      const ask = 'Notification' in window && Notification.permission === 'default' ? button('Turn on phone notifications', async () => { await Notification.requestPermission(); await draw(); }, 'btn-outline-dark') : null;
+      bar.replaceChildren(...unread.map(a => { const [title, ...rest] = a.message.split('\n'); return el('div', { class: `alert alert-${SEV[a.severity] || 'info'} d-flex flex-wrap align-items-start gap-2 mb-2`, role: a.severity === 'info' ? 'status' : 'alert' }, el('div', {}, el('strong', { text: title }), rest.length ? el('div', { class: 'small', text: rest.join(' ') }) : null, el('div', { class: 'small text-muted', text: stamp(a.createdAt) })), button('Dismiss', async () => { await send('/api/employee/alerts/read', { ids: [a.id] }); await draw(); }, 'btn-outline-dark ms-auto')); }), ...(ask ? [ask] : []));
+    };
+    draw();
+    const timer = setInterval(() => { if (!bar.isConnected) clearInterval(timer); else draw(); }, 60000);
+    return bar;
+  }
   // Persistent bar shown on every tab while clocked in.
   function clockBar() {
     const bar = el('div', { class: 'alert alert-success d-flex flex-wrap align-items-center gap-2 mb-3', role: 'status' });
@@ -530,7 +561,7 @@
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-3 mb-3' }, el('div', {}, el('h2', { class: 'h3 mb-0', text: `Hi, ${summary.profile.name.split(' ')[0]}` }), el('span', { class: 'text-muted', text: [summary.profile.roleTitle, summary.profile.email].filter(Boolean).join(' \u00b7 ') })),
         el('div', { class: 'd-flex flex-wrap gap-2' }, summary.profile.canEstimate ? el('a', { class: 'btn btn-sm btn-brass', href: '/estimator/', text: 'Estimator' }) : null, button('Sign out', async () => { await send('/api/auth/logout', {}); await boot(); }))),
       el('ul', { class: 'nav nav-pills mb-4 flex-wrap', role: 'tablist' }, TABS.map(([id, label]) => el('li', { class: 'nav-item' }, el('a', { class: `nav-link${id === tab ? ' active' : ''}`, href: `#${id}`, 'aria-current': id === tab ? 'page' : null, onclick: e => { e.preventDefault(); tab = id; history.replaceState(null, '', `#${id}`); render().catch(() => {}); } }, label, badgeFor[id] ? el('span', { class: 'badge text-bg-danger ms-2', text: String(badgeFor[id]) }) : null)))),
-      clockBar(), alertBox, body);
+      alertsBar(), clockBar(), alertBox, body);
     await SECTIONS[tab](body);
   }
 

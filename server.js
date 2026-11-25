@@ -254,9 +254,10 @@ function createServer(options = {}) {
   server.company = api.company;
   server.zoho = api.zoho;
   const stopMonitor = api.tracking.startMonitor();
+  const stopAlerts = api.jobAlerts.start();
   const stopHolidays = api.company.start();
   const stopZoho = api.zoho.start();
-  server.on('close', () => { stopMonitor(); stopHolidays(); stopZoho(); db.close(); });
+  server.on('close', () => { stopMonitor(); stopAlerts(); stopHolidays(); stopZoho(); db.close(); });
   if (siteUrl.startsWith('https://')) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
   server.seoSync = api.seoSync;
   server.headersTimeout = 15000; server.requestTimeout = 120000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 60;

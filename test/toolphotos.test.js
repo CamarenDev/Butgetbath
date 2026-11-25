@@ -53,6 +53,11 @@ test('tool photos: admin uploads, crew see, others blocked, bad files rejected',
     assert.equal((await call('anon', 'GET', `/api/tools/photo/${key}`)).status, 404);
 
     await call('admin', 'POST', `/api/admin/tools/photo/${key}/delete`, '{}', { 'Content-Type': 'application/json' });
-    assert.equal((await call('admin', 'GET', `/api/tools/photo/${key}`)).status, 404);
+    // With no uploaded photo, crew still get the built-in vector illustration
+    const art = await call('admin', 'GET', `/api/tools/photo/${key}`);
+    assert.equal(art.status, 200);
+    assert.equal(art.headers.get('content-type'), 'image/svg+xml; charset=utf-8');
+    assert.match(await art.text(), /<svg[\s\S]*Safety glasses/);
+    assert.equal((await call('cust', 'GET', `/api/tools/photo/${key}`)).status, 404);
   } finally { server.close(); }
 });

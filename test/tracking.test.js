@@ -59,12 +59,12 @@ test('GPS clock: consent, location required, job-site rules, automatic clock-out
     assert.equal((await clockIn({ jobId })).res.status, 409);
 
     // Pings record points; leaving the site starts the off-site clock
-    const ping = await call('hank', 'POST', '/api/employee/clock/ping', { deviceId: device.id, points: [fix({ at: Date.now() - 50000 }), fix(FAR)], events: [{ kind: 'tracking_paused' }, { kind: 'left_site' }] });
+    const ping = await call('hank', 'POST', '/api/employee/clock/ping', { deviceId: device.id, clientTime: Date.now() - 10 * 60000, points: [fix({ at: Date.now() - 50000 }), fix(FAR)], events: [{ kind: 'tracking_paused' }, { kind: 'left_site' }] });
     assert.equal(ping.data.saved, 2);
     assert.ok(ping.data.geofence.offsiteSince);
     const shiftId = started.data.id;
     let detail = (await call('admin', 'GET', `/api/admin/location/shifts/${shiftId}`)).data;
-    assert.deepEqual(detail.events.map(e => e.kind), ['tracking_paused']);
+    assert.deepEqual(detail.events.map(e => e.kind), ['clock_skew', 'tracking_paused']);
     assert.equal(detail.device.label, 'Pixel 8 \u00b7 Android');
     assert.equal(detail.consent.version, '2026-11');
     assert.equal((await call('hank', 'GET', `/api/admin/location/shifts/${shiftId}`)).res.status, 403);
