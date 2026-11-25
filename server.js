@@ -97,7 +97,10 @@ function createServer(options = {}) {
       if (typeof value !== 'string' || value.trim().length > (field === 'message' ? 4000 : 200)) return sendJson(res, 400, { error: 'Please check the form fields and try again.' });
       clean[field] = value.trim();
     }
-    if (!['project', 'work', 'question'].includes(clean.type) || !clean.name || !clean.location || !clean.interest || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email) || input.consent !== true) {
+    const callback = clean.type === 'callback';
+    if (callback) { clean.location ||= 'Not provided'; clean.interest ||= 'Free estimate callback'; }
+    const validContact = callback ? clean.phone.replace(/\D/g, '').length >= 7 : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email);
+    if (!['project', 'work', 'question', 'callback'].includes(clean.type) || !clean.name || !clean.location || !clean.interest || !validContact || input.consent !== true) {
       return sendJson(res, 400, { error: 'Please complete the required fields and agree to the privacy policy.' });
     }
     if (clean.preferredDate && !/^\d{4}-\d{2}-\d{2}$/.test(clean.preferredDate)) return sendJson(res, 400, { error: 'Please choose a valid day.' });
@@ -142,9 +145,9 @@ function createServer(options = {}) {
     try {
       const contact = db.prepare('INSERT INTO contacts (type, name, email, phone, location, interest, message, created_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(c.type, c.name, c.email, c.phone, c.location, c.interest, c.message, c.receivedAt, key);
-      saveLead(c, optin);
-      const messages = [{ to: c.email, ...templates.leadConfirmation({ name: c.name, type: c.type }) }];
-      if (notifyEmail) messages.push({ to: notifyEmail, replyTo: c.email, ...templates.leadAlert({ submission: c }) });
+      const messages = [];
+      if (c.email) { saveLead(c, optin); messages.push({ to: c.email, ...templates.leadConfirmation({ name: c.name, type: c.type }) }); }
+      if (notifyEmail) messages.push({ to: notifyEmail, replyTo: c.email || undefined, ...templates.leadAlert({ submission: c }) });
       db.prepare('INSERT INTO notification_jobs (idempotency_key, contact_id, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
         .run(key, Number(contact.lastInsertRowid), JSON.stringify(messages), c.receivedAt, c.receivedAt);
       db.exec('COMMIT');
