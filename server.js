@@ -46,7 +46,7 @@ function createServer(options = {}) {
     trustedProxyIps: options.trustedProxyIps ?? config.trustedProxyIps
   });
   const db = openDb(dataDir);
-  const templates = createTemplates(siteUrl);
+  const templates = createTemplates(siteUrl, { phone: process.env.BUSINESS_PHONE || (() => { try { return require('./site.json').phone || ''; } catch { return ''; } })() });
   const api = createApi({ db, dataDir, mailer, templates, siteUrl, notifyEmail, adminEmails, replyDomain, webhookSecret, receiver, gcal, clientIp, secureCookies: siteUrl.startsWith('https://'), paymentsEnabled: config.paymentsEnabled });
   const recent = new Map();
 

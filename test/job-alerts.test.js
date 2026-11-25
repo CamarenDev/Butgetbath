@@ -17,7 +17,7 @@ test('deadline warnings fire once per time, escalate, and re-arm when the time c
   db.prepare("INSERT INTO job_tools (job_id, name, checked) VALUES (1, 'Wet saw', 0)").run();
   const sent = [];
   let t = start - 30 * 60000;
-  const alerts = createJobAlerts({ db, mailer: async m => { sent.push(m); }, templates: { staffNotice: o => ({ subject: o.subject, text: o.body }), customerMessage: o => ({ subject: o.subject, text: o.body }) }, notifyEmail: 'office@example.com', now: () => t });
+  const alerts = createJobAlerts({ db, mailer: async m => { sent.push(m); }, templates: { staffNotice: o => ({ subject: o.subject, text: o.body }), customerMessage: o => ({ subject: o.subject, text: o.body }), officeAlert: o => ({ subject: o.subject, text: o.body }) }, notifyEmail: 'office@example.com', now: () => t });
   const kinds = () => db.prepare('SELECT kind FROM employee_alerts ORDER BY id').all().map(r => r.kind);
 
   alerts.sweep(); alerts.sweep();
