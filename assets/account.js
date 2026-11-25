@@ -48,7 +48,7 @@
   const stat = (label, value, tone) => el('div', { class: 'col-6 col-lg-3' }, el('div', { class: `stat-tile tone-${tone}` }, el('div', { class: 'n', text: String(value) }), el('div', { class: 'l', text: label })));
   const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm';
   const field = (label, value) => value ? el('p', { class: 'mb-2' }, el('strong', { text: `${label}: ` }), document.createTextNode(value)) : '';
-  const requireUser = async () => { try { const u = (await api('/api/auth/me')).user; window.bbsI18n?.adopt(u.lang); return u; } catch (e) { if (e.status === 401) { location.replace('/account/login/'); return null; } throw e; } };
+  const requireUser = async () => { try { const u = (await api('/api/auth/me')).user; if (u.mustChangePassword && page !== 'change-password') { location.replace('/account/change-password/'); return null; } window.bbsI18n?.adopt(u.lang); return u; } catch (e) { if (e.status === 401) { location.replace('/account/login/'); return null; } throw e; } };
 
   async function logout() { await postJson('/api/auth/logout', {}); location.assign('/account/login/'); }
 
@@ -70,7 +70,8 @@
       show(status, 'secondary', 'Please wait...');
       try {
         const result = await postJson(form.dataset.api, data);
-        if (form.dataset.redirect && page === 'login') return location.assign(form.dataset.redirect);
+        if (page === 'login') return location.assign(result.user && result.user.mustChangePassword ? '/account/change-password/' : form.dataset.redirect);
+        if (page === 'change-password') return location.assign(form.dataset.redirect);
         show(status, 'success', result.message || 'Done.');
         if (page === 'reset') setTimeout(() => location.assign(form.dataset.redirect), 1500);
         if (page !== 'login') form.reset();

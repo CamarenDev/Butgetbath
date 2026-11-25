@@ -290,7 +290,7 @@ test('handyman jobs: tasks, plan, permits, tools and admin pricing', async () =>
     await call('POST', '/api/auth/verify', { token: sent.at(-1).text.match(/token=([\w-]+)/)[1] });
     await call('POST', '/api/auth/login', { email: 'admin@example.com', password: 'correct-horse-1' });
     const list = await call('GET', '/api/estimator/handyman/tasks');
-    assert.ok(list.data.tasks.length > 100 && list.data.categories.length === 14);
+    assert.ok(list.data.tasks.length > 100 && list.data.categories.length === 15);
     const heater = list.data.tasks.find(t => t.permit === 'Plumbing');
     const paint = list.data.tasks.find(t => t.category === 'Painting');
     const inputs = { jobType: 'handyman', homeYear: '1965', city: 'Aurora', tasks: { [heater.code]: 1, [paint.code]: 200 } };

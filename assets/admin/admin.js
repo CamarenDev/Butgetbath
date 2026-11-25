@@ -38,7 +38,7 @@
 
   const SECTIONS = [
     ['dashboard', 'Dashboard', '\u25A6'], ['customers', 'Customers', '\u2616'], ['employees', 'Employees', '\u2692'], ['live', 'Live now', '\u25C9'], ['onboarding', 'Onboarding', '\u2713'], ['toolphotos', 'Tool photos', '\u2692'], ['location', 'Location', '\u25CE'], ['jobs', 'Jobs', '\u2302'], ['estimator', 'Estimator', '\u2630'], ['company', 'Company', '\u25A4'], ['accounting', 'Accounting', '\u0024'], ['zoho', 'Zoho Books', '\u21C5'], ['seo', 'SEO files', '\u2315'], ['security', 'Security log', '\u26E8'], ['holidays', 'Holiday sales', '\u2744'], ['hr', 'HR', '\u270E'], ['knowledge', 'Knowledge base', '\u2139'], ['bookings', 'Bookings', '\uD83D\uDCC5'], ['contacts', 'Contacts', '\u2709'], ['support', 'Support', '\u260E'], ['forum', 'Forum', '\u2756'],
-    ['reviews', 'Reviews', '\u2605'], ['projects', 'Projects', '\u25A3'], ['images', 'Images', '\u25A8'], ['visitors', 'Visitors', '\u2197'], ['users', 'Users', '\u263A'], ['settings', 'Settings', '\u2699']
+    ['reviews', 'Reviews', '\u2605'], ['projects', 'Projects', '\u25A3'], ['images', 'Images', '\u25A8'], ['visitors', 'Visitors', '\u2197'], ['users', 'Users', '\u263A'], ['settings', 'Settings', '\u2699'], ['errors', 'Error log', '\u26A0']
   ];
   let badges = {};
   const GROUPS = [
@@ -47,7 +47,7 @@
     ['Money', ['accounting', 'zoho', 'holidays']],
     ['Inbox', ['bookings', 'contacts', 'support', 'hr']],
     ['Website', ['projects', 'images', 'reviews', 'forum', 'knowledge', 'seo']],
-    ['Admin', ['users', 'security', 'settings']]
+    ['Admin', ['users', 'security', 'errors', 'settings']]
   ];
   const openGroups = new Set(['Overview', 'Work']);
   const renderNav = current => {
@@ -967,6 +967,43 @@
     view.replaceChildren(panel('Security log', el('p', { class: 'text-muted', text: 'Sign-in failures, account lockouts, fake-GPS and device-sharing findings, and admin overrides of time clock records. Accounts lock for 15 minutes after 8 failed sign-ins.' }), el('div', { class: 'row g-2 mb-3' }, el('div', { class: 'col-sm-4' }, days.wrap), el('div', { class: 'col-sm-4' }, only.wrap)), out));
     await draw();
   };
+  const errorLog = async () => {
+    const days = input('Period', {}, 'select'); [[1, 'Last 24 hours'], [7, 'Last 7 days'], [30, 'Last 30 days'], [90, 'Last 90 days']].forEach(([v, t]) => days.ctl.append(el('option', { value: v, text: t, selected: v === 7 })));
+    const src = input('Where', {}, 'select'); [['', 'Everywhere'], ['server', 'Server'], ['browser', 'Visitor browsers'], ['process', 'Background tasks']].forEach(([v, t]) => src.ctl.append(el('option', { value: v, text: t })));
+    const find = input('Search', { type: 'search', placeholder: 'message, page or stack' });
+    const done = input('Show', {}, 'select'); [['0', 'Open errors'], ['1', 'Open and resolved']].forEach(([v, t]) => done.ctl.append(el('option', { value: v, text: t })));
+    const out = el('div', { id: 'error-log' });
+    const row = (k, v) => v === '' || v == null ? null : el('div', { class: 'row g-1 mb-1' }, el('dt', { class: 'col-sm-3 text-muted fw-normal', text: k }), el('dd', { class: 'col-sm-9 mb-0 text-break', text: String(v) }));
+    const detail = e => {
+      const ctx = Object.entries(e.context || {}).filter(([k]) => k !== 'trail');
+      const trail = e.context && Array.isArray(e.context.trail) ? e.context.trail : null;
+      return el('div', { class: 'error-detail border rounded p-3 mt-2 bg-light' },
+        el('dl', { class: 'mb-2' }, row('What happened', e.message), row('When', new Date(e.at).toLocaleString()), row('Where', e.source === 'browser' ? 'Visitor browser' : e.source === 'process' ? 'Background task' : 'Server'), row('Type', e.kind.replace(/_/g, ' ')), row('Page / request', `${e.method ? e.method + ' ' : ''}${e.url}`), row('Status', e.status), row('Signed in as', e.userEmail), row('IP address', e.ip), row('Device', e.userAgent), row('Reference', `#${e.id} (group ${e.fingerprint})`), ...ctx.map(([k, v]) => row(k, v))),
+        trail && trail.length ? el('div', { class: 'mb-2' }, el('strong', { text: 'What the visitor did just before' }), el('pre', { class: 'small mb-0 mt-1', tabindex: '0', text: trail.join('\n') })) : null,
+        e.stack ? el('div', {}, el('strong', { text: 'Technical trace' }), el('pre', { class: 'small mb-0 mt-1', tabindex: '0', text: e.stack })) : el('p', { class: 'small text-muted mb-0', text: 'No technical trace was available.' }));
+    };
+    const draw = async () => {
+      const d = await api(`/api/admin/errors?days=${days.ctl.value}&source=${src.ctl.value}&q=${encodeURIComponent(find.ctl.value)}&resolved=${done.ctl.value}`);
+      const item = e => {
+        const box = el('div', { class: 'border-bottom py-2' });
+        const body = el('div', { hidden: true });
+        const head = el('button', { type: 'button', class: 'btn btn-link text-start text-decoration-none p-0 w-100 d-flex flex-column align-items-start', 'aria-expanded': 'false', onclick: () => { body.hidden = !body.hidden; head.setAttribute('aria-expanded', String(!body.hidden)); if (!body.hidden && !body.children.length) body.append(detail(e)); } },
+          el('span', { class: 'd-flex flex-wrap gap-2 align-items-center' }, badge(e.source, e.source === 'server' ? 'danger' : e.source === 'process' ? 'dark' : 'primary'), badge(e.kind.replace(/_/g, ' '), e.level === 'warn' ? 'warning' : 'secondary'), e.resolved ? badge('resolved', 'success') : null, el('span', { class: 'text-muted small', text: new Date(e.at).toLocaleString() })),
+          el('span', { class: 'd-block fw-semibold text-body text-break', text: e.message }), el('span', { class: 'd-block small text-muted text-break', text: `${e.method ? e.method + ' ' : ''}${e.url || ''}` }));
+        box.append(head, body, e.resolved ? '' : el('div', { class: 'mt-1' }, btn('Mark resolved', async () => { await send(`/api/admin/errors/${e.id}/resolve`, 'POST'); draw(); }), ' ', btn('Resolve all like this', async () => { await send(`/api/admin/errors/group/${e.fingerprint}/resolve`, 'POST'); draw(); })));
+        return box;
+      };
+      const s = d.summary;
+      out.replaceChildren(
+        el('div', { class: 'd-flex flex-wrap gap-2 mb-3' }, badge(`${s.open} open`, s.open ? 'danger' : 'success'), badge(`${s.last24h} in the last 24 hours`, 'secondary'), ...s.bySource.map(x => badge(`${x.source}: ${x.n}`, 'secondary'))),
+        s.top.length ? el('div', { class: 'mb-3' }, el('h3', { class: 'h6', text: 'Most frequent' }), el('ul', { class: 'small mb-0' }, ...s.top.map(t => el('li', { class: 'text-break', text: `${t.n}\u00D7 ${t.message}` })))) : null,
+        d.errors.length ? el('div', {}, ...d.errors.map(item)) : empty('No errors in this period. Nothing has gone wrong.'));
+    };
+    [days, src, done].forEach(x => x.ctl.addEventListener('change', guard(draw))); find.ctl.addEventListener('input', (() => { let t; return () => { clearTimeout(t); t = setTimeout(guard(draw), 300); }; })());
+    view.replaceChildren(panel('Error log', el('p', { class: 'text-muted', text: 'Every error on the server, in background tasks and in visitors\u2019 browsers is recorded here with the page, device, account and steps that led to it. Click an error for full detail. Visitors only ever see a friendly message.' }),
+      el('div', { class: 'row g-2 align-items-end' }, [days, src, done, find].map(x => el('div', { class: 'col-sm-6 col-lg-3' }, x.wrap)))), panel(null, out, el('div', { class: 'mt-3' }, btn('Mark everything resolved', async () => { if (!confirm('Mark every open error as resolved?')) return; await send('/api/admin/errors/clear', 'POST'); draw(); }))));
+    await draw();
+  };
   const holidays = async () => {
     const d = await api('/api/admin/holidays'), base = '/api/admin/holidays';
     const master = input('Automatic holiday emails', {}, 'select');
@@ -1005,7 +1042,7 @@
     );
   };
 
-  const routes = { dashboard, customers, employees, live: livePage, onboarding: onboardingPage, bookings: bookingsPage, toolphotos: toolPhotos, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
+  const routes = { dashboard, customers, employees, live: livePage, onboarding: onboardingPage, bookings: bookingsPage, toolphotos: toolPhotos, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, errors: errorLog, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
   async function route() {
     const key = location.hash.slice(1).split('/')[0], id = routes[key] ? key : 'dashboard';
     $('#admin-title').textContent = SECTIONS.find(s => s[0] === id)[1];
@@ -1018,6 +1055,7 @@
   async function boot() {
     let me = null;
     try { me = (await api('/api/auth/me')).user; window.bbsI18n?.adopt(me.lang); } catch { /* signed out */ }
+    if (me && me.mustChangePassword) { location.replace('/account/change-password/'); return; }
     $('#admin-app').hidden = !(me && me.admin); $('#admin-login').hidden = Boolean(me && me.admin);
     if (me && me.admin) { $('#admin-user').textContent = me.email; try { badges.hr = (await api('/api/admin/hr')).pipeline.new; badges.location = (await api(`/api/admin/location?from=${new Date().toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`)).unacknowledged; } catch { /* optional */ } route(); }
     else if (me) { const st = $('#login-form .form-status'); st.textContent = 'This account does not have admin access.'; }

@@ -1,4 +1,4 @@
-const CACHE = 'bbs-v7';
+const CACHE = 'bbs-v10';
 const OFFLINE = '/offline/';
 
 self.addEventListener('install', event => {
@@ -18,10 +18,7 @@ self.addEventListener('fetch', event => {
     return;
   }
   if (/\.(css|js|svg|png|webp|jpg)$/.test(url.pathname)) {
-    event.respondWith(caches.open(CACHE).then(async cache => {
-      const hit = await cache.match(request);
-      const net = fetch(request).then(res => { if (res.ok) cache.put(request, res.clone()); return res; }).catch(() => hit);
-      return hit || net;
-    }));
+    // Network first so a new release is never hidden behind stale cached styles or scripts.
+    event.respondWith(fetch(request).then(res => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(request, copy)); } return res; }).catch(() => caches.match(request)));
   }
 });

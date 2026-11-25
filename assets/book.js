@@ -164,7 +164,10 @@
       if (manage) {
         try { state.booking = (await api(`/api/book/manage?token=${encodeURIComponent(token)}`)).booking; } catch (e) { state.error = e.message; }
       } else if (state.cfg.kinds.some(k => k.key === params.get('kind'))) { await pickKind(params.get('kind')); return; }
-    } catch (e) { root.replaceChildren(el('p', { class: 'text-danger', text: 'Booking is unavailable right now. Please send us a message instead.' }), el('a', { class: 'btn btn-brass', href: '/contact/', text: 'Send a message' })); return; }
+    } catch (e) {
+      if (!state.retried && (e.status === undefined || e.status >= 500)) { state.retried = true; setTimeout(() => location.reload(), 1500); }
+      console.error('Booking failed to load:', e.status || '', e.message);
+      root.replaceChildren(el('p', { class: 'text-danger', text: `Booking is unavailable right now${e.status ? ` (error ${e.status})` : ' (could not reach the server)'}. Please send us a message instead.` }), el('a', { class: 'btn btn-brass', href: '/contact/', text: 'Send a message' })); return; }
     draw();
   })();
 })();
