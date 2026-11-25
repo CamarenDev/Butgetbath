@@ -4,9 +4,20 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { createServer } = require('../server');
+const { createClientIp } = require('../lib/client-ip');
 
 const SITE = { lat: 41.8781, lng: -87.6298 };
 const fix = (over = {}) => ({ ...SITE, accuracy: 12, at: Date.now(), ...over });
+
+test('trusted proxy addresses are only accepted from the configured topology', () => {
+  const direct = createClientIp({ trustProxy: true, trustedProxyIps: ['10.0.0.0/8'] });
+  const request = (peer, forwarded) => ({ socket: { remoteAddress: peer }, headers: { 'x-forwarded-for': forwarded } });
+  assert.equal(direct(request('203.0.113.9', '127.0.0.1')), '203.0.113.9', 'an untrusted direct client cannot spoof');
+  assert.equal(direct(request('10.0.0.5', '198.51.100.1, 203.0.113.4')), '203.0.113.4', 'the first untrusted hop from the right is selected');
+  assert.equal(direct(request('10.0.0.5', '198.51.100.1, 10.1.2.3')), '198.51.100.1', 'trusted proxy chains are traversed');
+  const loopbackOnly = createClientIp({ trustProxy: true, trustedProxyIps: [] });
+  assert.equal(loopbackOnly(request('::ffff:127.0.0.1', '198.51.100.8')), '198.51.100.8');
+});
 
 test('security: lockout, CSRF, fake-GPS jumps, device binding and shared devices', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-sec-'));
