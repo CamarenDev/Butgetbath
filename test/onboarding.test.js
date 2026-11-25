@@ -130,6 +130,7 @@ test('onboarding: forms, contract, experience, training, sign-off and gating', a
 
     const signoff = await call('admin', 'POST', `/api/admin/onboarding/${empId}/signoff`, { note: 'Great scores' });
     assert.equal(signoff.res.status, 200);
+    assert.equal((await call('admin', 'POST', `/api/admin/onboarding/${empId}/signoff`, { note: 'Great scores' })).data.duplicate, true);
     assert.equal((await call('hank', 'GET', '/api/employee/me')).data.onboarding, '');
     assert.equal((await call('hank', 'GET', '/api/employee/jobs')).res.status, 200);
     assert.equal((await call('hank', 'GET', '/api/employee/clock')).res.status, 200);
