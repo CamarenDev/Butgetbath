@@ -269,6 +269,8 @@ function createServer(options = {}) {
 }
 
 if (require.main === module) {
+  // `node server.js` does not read .env by itself; real environment variables still win.
+  try { process.loadEnvFile(path.join(__dirname, '.env')); } catch (error) { if (error.code !== 'ENOENT') console.warn(`Could not read .env: ${error.message}`); }
   let config;
   try {
     config = validateConfig(process.env, { warn: message => console.warn(`Configuration warning: ${message}`) });
@@ -277,7 +279,7 @@ if (require.main === module) {
     process.exitCode = 1;
   }
   if (!config) return;
-  const server = createServer({ config }).listen(config.port, config.host || undefined, () => console.log(`Budget Bath Solutions running on ${config.siteUrl}`));
+  const server = createServer({ config }).listen(config.port, config.host || undefined, () => console.log(`Budget Bath Solutions running on ${config.siteUrl}; email ${config.email.enabled ? `enabled (from ${config.email.from})` : 'DISABLED'}, admin inbox ${config.notifyEmail || 'none'}`));
   // A stray error anywhere (timers, background jobs, unawaited promises) is logged instead of taking the site down.
   let recent = 0;
   const survive = kind => error => {
