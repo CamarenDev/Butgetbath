@@ -5,13 +5,16 @@ Lead-generation website for Budget Bath Solutions (bathroom remodeling and tile 
 - Free customer accounts: email verification, photo and video uploads (photos up to 8 MB, MP4/MOV/WebM videos up to 100 MB, 10 files per request) with per-file comments, and a threaded request (ticket) system with categories, priorities, a progress stepper, upcoming appointments, a staff inbox (search, sort, filters), internal notes, email notifications and email replies. Email is sent with Resend.
 - Landing page built for booking: an above-the-fold estimate form (preferred day and time), FAQ with schema markup and local business schema.
 
+Requires Node 24 or newer. From a clean checkout:
+
 ```
-npm install
+npm ci
+npm run build
 npm start    # builds and serves on http://localhost:3000
 npm test
 ```
 
-Configuration, Resend setup and deployment notes are in [DEPLOYMENT.md](DEPLOYMENT.md). Copy `.env.example` to `.env` and never commit it.
+The lockfile is authoritative; use `npm ci` for reproducible local and CI installs. Configuration, Resend setup, backup/restore, monitoring and deployment notes are in [DEPLOYMENT.md](DEPLOYMENT.md). Copy `.env.example` to `.env`, configure only the integrations you use, and never commit it.
 
 ## Appointments
 

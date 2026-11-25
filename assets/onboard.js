@@ -13,6 +13,15 @@
     return data;
   };
   const send = (url, body) => api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const pending = new Map();
+  const sendOnce = (url, body) => {
+    const key = `${url}:${JSON.stringify(body || {})}`;
+    if (pending.has(key)) return pending.get(key);
+    const run = send(url, body);
+    pending.set(key, run);
+    run.finally(() => pending.delete(key)).catch(() => {});
+    return run;
+  };
   const BASE = '/api/employee/onboarding';
   const stamp = v => v ? new Date(v).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
 
@@ -35,8 +44,8 @@
     return { ctl, wrap: el('div', { class: 'form-check mb-2' }, ctl, el('label', { class: 'form-check-label', for: id, text: label })) };
   };
   const submitter = (ctx, label, run) => el('button', { type: 'button', class: 'btn btn-brass', text: label, onclick: async event => {
-    const b = event.currentTarget; b.disabled = true;
-    try { await run(); } catch (e) { if (e.status === 401) return ctx.done(); notice('danger', e.message); } finally { b.disabled = false; }
+    const b = event.currentTarget; if (b.dataset.pending) return; b.dataset.pending = '1'; b.disabled = true; b.setAttribute('aria-busy', 'true'); const old = b.textContent; b.textContent = 'Saving…';
+    try { await run(); } catch (e) { if (e.status === 401) return ctx.done(); notice('danger', e.message); } finally { if (b.isConnected) { b.disabled = false; b.textContent = old; b.removeAttribute('aria-busy'); delete b.dataset.pending; } }
   } });
   const num = (f) => f.ctl.value === '' ? '' : Number(f.ctl.value);
 
@@ -47,7 +56,7 @@
       phone: field('Mobile phone', { type: 'tel', value: p.phone, maxlength: 40, autocomplete: 'tel' }), emergencyName: field('Emergency contact name', { value: p.emergencyName, maxlength: 120 }), emergencyPhone: field('Emergency contact phone', { type: 'tel', value: p.emergencyPhone, maxlength: 40 }), emergencyRelation: field('Relationship', { value: p.emergencyRelation, maxlength: 60 }) };
     return el('div', {}, el('h3', { class: 'h5', text: 'Step 1: About you' }), el('p', { class: 'text-muted', text: 'We use this for payroll records and so we can reach someone if you are ever hurt on the job.' }),
       el('div', { class: 'row' }, Object.values(f).map(x => el('div', { class: 'col-md-6' }, x.wrap))),
-      submitter(ctx, 'Save and continue', async () => { await send(`${BASE}/personal`, Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.ctl.value]))); await ctx.reload(); }));
+      submitter(ctx, 'Save and continue', async () => { await sendOnce(`${BASE}/personal`, Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.ctl.value]))); await ctx.reload(); }));
   }
 
   function tax(ctx, s) {
@@ -76,7 +85,7 @@
       el('hr'), el('div', { class: 'row' }, el('div', { class: 'col-md-6' }, f.depType.wrap)), bankRows,
       el('hr'), agree.wrap, f.name.wrap,
       submitter(ctx, 'Sign and continue', async () => {
-        await send(`${BASE}/tax`, { ssnLast4: f.ssnLast4.ctl.value, filingStatus: f.filing.ctl.value, multipleJobs: multi.ctl.checked, credits: num(f.credits), otherIncome: num(f.other), deductions: num(f.deductions), extraWithholding: num(f.extra), i9Status: f.i9.ctl.value, i9Docs: f.docs.ctl.value,
+        await sendOnce(`${BASE}/tax`, { ssnLast4: f.ssnLast4.ctl.value, filingStatus: f.filing.ctl.value, multipleJobs: multi.ctl.checked, credits: num(f.credits), otherIncome: num(f.other), deductions: num(f.deductions), extraWithholding: num(f.extra), i9Status: f.i9.ctl.value, i9Docs: f.docs.ctl.value,
           depositType: f.depType.ctl.value, depositBank: f.bank.ctl.value, depositLast4: f.last4.ctl.value, signName: f.name.ctl.value, agree: agree.ctl.checked });
         await ctx.reload();
       }));
@@ -88,7 +97,7 @@
     return el('div', {}, el('h3', { class: 'h5', text: 'Step 3: Employment agreement' }), el('p', { class: 'text-muted', text: 'Read the whole agreement, then sign with your typed name. We record the time, your device and your address as proof you signed.' }),
       el('div', { class: 'border rounded p-3 mb-3 contract-box pre-wrap', tabindex: '0', role: 'region', 'aria-label': 'Employment agreement', text: c.text }),
       agree.wrap, el('h4', { class: 'h6 mt-3', text: 'Location tracking notice' }), consent.wrap, name.wrap,
-      submitter(ctx, 'Sign agreement', async () => { await send(`${BASE}/contract`, { signName: name.ctl.value, agree: agree.ctl.checked, locationConsent: consent.ctl.checked }); await ctx.reload(); }));
+      submitter(ctx, 'Sign agreement', async () => { await sendOnce(`${BASE}/contract`, { signName: name.ctl.value, agree: agree.ctl.checked, locationConsent: consent.ctl.checked }); await ctx.reload(); }));
   }
 
   // ---------- Experience (also reused as a normal tab after onboarding)
@@ -113,11 +122,11 @@
     texts.priorEmployers.ctl.value = saved.priorEmployers || ''; texts.notes.ctl.value = saved.notes || '';
     return el('div', {}, el('h3', { class: 'h5', text: editing ? 'My experience' : 'Step 4: Your experience' }),
       el('p', { class: 'text-muted', text: 'Be honest: this is how the office decides which jobs to give you and who to pair you with. Saying you can do something you cannot hurts you and the customer. You can update this any time.' }),
-      el('h4', { class: 'h6', text: 'Your trades' }), el('div', { class: 'row g-2 mb-3' }, trades.map(t => t.row)),
+      el('h4', { class: 'h6', text: 'Your trades' }),       el('div', { class: 'row g-2 mb-3' }, trades.map(t => t.row)),
       el('h4', { class: 'h6', text: 'How comfortable are you with each task?' }), el('div', { class: 'row g-2 mb-3' }, taskRows),
       el('div', { class: 'mb-3' }, Object.values(bools).map(b => b.wrap)), Object.values(texts).map(t => t.wrap),
       submitter(ctx, editing ? 'Save experience' : 'Save and start training', async () => {
-        const r = await send(`${BASE}/experience`, { trades: trades.filter(t => t.level.value !== '0' && t.years.value !== '').map(t => ({ name: t.name, years: Number(t.years.value), level: Number(t.level.value) })),
+        const r = await sendOnce(`${BASE}/experience`, { trades: trades.filter(t => t.level.value !== '0' && t.years.value !== '').map(t => ({ name: t.name, years: Number(t.years.value), level: Number(t.level.value) })),
           tasks: Object.fromEntries(Object.entries(tasks).map(([k, v]) => [k, Number(v.value)])), ...Object.fromEntries(Object.entries(bools).map(([k, v]) => [k, v.ctl.checked])), ...Object.fromEntries(Object.entries(texts).map(([k, v]) => [k, v.ctl.value])) });
         if (editing) notice('success', 'Experience saved.'); else await ctx.reload();
         return r;
@@ -151,7 +160,7 @@
           el('hr'), el('h4', { class: 'h5', text: key === 'final' ? 'Final exam' : 'Quiz' }), ...qs,
           submitter(ctx, 'Submit answers', async () => {
             if (Object.keys(picks).length < d.questions.length) { notice('warning', 'Answer every question first.'); return; }
-            const r = await send(`${BASE}/training/${key}`, { answers: picks });
+            const r = await sendOnce(`${BASE}/training/${key}`, { answers: picks, attempt: d.attempts });
             const missed = r.missed.map(x => el('li', { class: 'mb-1' }, x.question, x.correct ? el('div', { class: 'small text-success', text: `Right answer: ${x.correct}` }) : null));
             box.replaceChildren(el('h3', { class: 'h5', text: r.passed ? 'You passed' : 'Not yet' }), el('p', { text: `You scored ${r.score} of ${r.total} (${r.percent}%). ${r.passed ? '' : `You need ${t.passMark}%.`}${r.attemptsLeft != null && !r.passed ? ` Attempts left: ${r.attemptsLeft}.` : ''}` }),
               missed.length ? el('div', {}, el('h4', { class: 'h6', text: 'Review these' }), el('ul', {}, missed)) : null, el('button', { type: 'button', class: 'btn btn-brass', text: 'Continue', onclick: () => ctx.reload() }));

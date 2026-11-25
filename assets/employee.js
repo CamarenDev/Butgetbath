@@ -14,7 +14,15 @@
     if (!response.ok) { const error = new Error(data.error || 'Something went wrong. Please try again.'); error.status = response.status; throw error; }
     return data;
   };
-  const send = (url, body) => api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const pendingPosts = new Map();
+  const send = (url, body) => {
+    const payload = JSON.stringify(body || {}), key = `${url}:${payload}`;
+    if (pendingPosts.has(key)) return pendingPosts.get(key);
+    const run = api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload });
+    pendingPosts.set(key, run);
+    run.finally(() => pendingPosts.delete(key)).catch(() => {});
+    return run;
+  };
   const money = c => `$${(c / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const hrs = m => `${(m / 60).toFixed(2).replace(/\.?0+$/, '')} h`;
   const day = v => v ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T12:00:00` : v).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '';
@@ -23,7 +31,14 @@
   const badge = text => el('span', { class: `badge text-bg-${COLORS[text] || 'secondary'}`, text: text.replace('_', ' ') });
   let alertBox;
   const notice = (kind, message) => { alertBox.className = `alert alert-${kind}`; alertBox.textContent = message; alertBox.scrollIntoView({ block: 'nearest' }); };
-  const act = fn => async (...a) => { try { await fn(...a); } catch (e) { if (e.status === 401 || e.status === 403) return boot(); notice('danger', e.message); } };
+  const act = fn => async (...a) => {
+    const control = a[0]?.currentTarget;
+    if (control?.dataset?.pending) return;
+    const label = control?.textContent;
+    if (control?.disabled !== undefined) { control.disabled = true; control.dataset.pending = '1'; control.setAttribute('aria-busy', 'true'); control.textContent = 'Working…'; }
+    try { await fn(...a); } catch (e) { if (e.status === 401 || e.status === 403) return boot(); notice('danger', e.message); }
+    finally { if (control?.isConnected) { control.disabled = false; control.textContent = label; control.removeAttribute('aria-busy'); delete control.dataset.pending; } }
+  };
   const button = (label, onclick, cls = 'btn-outline-dark') => el('button', { type: 'button', class: `btn btn-sm ${cls}`, onclick: act(onclick), text: label });
   const field = (label, props = {}, tag = 'input') => {
     const id = `f${Math.random().toString(36).slice(2, 8)}`;
@@ -95,7 +110,31 @@
       return el('details', { class: 'mt-2', ontoggle: async ev => { if (ev.target.open && !loaded) { loaded = true; try { if (window.BBSTools) await BBSTools.load(); draw(await api(`/api/employee/jobs/${j.id}/tools`)); } catch (err) { loaded = false; body.textContent = err.message; } } } }, el('summary', { class: 'small fw-bold', text: 'Tools checklist' }), body);
     };
     // Daily check-in, job photos and videos, and liability records with homeowner consent.
-    const upload = async (jobId, file, meta) => api(`/api/employee/jobs/${jobId}/field/media`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Kind': meta.kind, 'X-Phase': meta.phase || 'other', 'X-Caption': encodeURIComponent(meta.caption || ''), 'X-Filename': encodeURIComponent(file.name || 'file') }, body: file });
+    const uploads = new WeakMap();
+    const upload = async (jobId, file, meta) => {
+      let byFile = uploads.get(file);
+      if (!byFile) { byFile = new Map(); uploads.set(file, byFile); }
+      const key = `${jobId}:${meta.kind}:${meta.phase || 'other'}:${meta.caption || ''}`;
+      if (byFile.has(key)) return byFile.get(key);
+      const run = api(`/api/employee/jobs/${jobId}/field/media`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', 'X-Kind': meta.kind, 'X-Phase': meta.phase || 'other', 'X-Caption': encodeURIComponent(meta.caption || ''), 'X-Filename': encodeURIComponent(file.name || 'file') }, body: file });
+      byFile.set(key, run);
+      run.catch(() => byFile.delete(key));
+      return run;
+    };
+    const uploadMany = async (jobId, selections, meta, status) => {
+      const items = selections.map(file => ({ file, state: 'Waiting', error: '' }));
+      const draw = () => {
+        status.replaceChildren(...items.map(item => el('div', { class: `small ${item.error ? 'text-danger' : ''}`, text: `${item.file.name}: ${item.state}${item.error ? ` — ${item.error}` : ''}` })));
+      };
+      for (const item of items) {
+        item.state = 'Uploading'; draw();
+        try { await upload(jobId, item.file, meta); item.state = 'Uploaded'; } catch (error) { item.state = 'Failed'; item.error = error.message; }
+      }
+      draw();
+      const failed = items.filter(item => item.error);
+      if (failed.length) throw new Error(`${items.length - failed.length} uploaded; ${failed.length} failed. Retry to upload only the failures.`);
+      return items.length;
+    };
     const signaturePad = () => {
       const canvas = el('canvas', { class: 'sig-pad', width: '600', height: '200', 'aria-label': 'Homeowner signature' });
       const g = canvas.getContext('2d');
@@ -130,12 +169,12 @@
         phase.ctl.append(d.phases.map(p => el('option', { value: p, text: p.replace('-', ' ') })));
         kind.ctl.append(d.kinds.filter(k => k !== 'consent').map(k => el('option', { value: k, text: k })));
         const files = el('input', { type: 'file', class: 'form-control', accept: 'image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm', multiple: true, 'aria-label': 'Photos or videos' });
+        const uploadStatus = el('div', { class: 'mt-2', role: 'status', 'aria-live': 'polite' });
         const photos = card('Job photos and videos', el('p', { class: 'small text-muted', text: 'Take photos at every stage: before, during, after, and any problem. They are saved with the job for future reference.' }),
-          el('div', { class: 'row' }, el('div', { class: 'col-md-4' }, phase.wrap), el('div', { class: 'col-md-4' }, kind.wrap), el('div', { class: 'col-md-4' }, caption.wrap)), el('div', { class: 'mb-3' }, files),
+          el('div', { class: 'row' }, el('div', { class: 'col-md-4' }, phase.wrap), el('div', { class: 'col-md-4' }, kind.wrap), el('div', { class: 'col-md-4' }, caption.wrap)), el('div', { class: 'mb-3' }, files, uploadStatus),
           button('Upload', async () => {
             if (!files.files.length) throw new Error('Choose or take at least one photo or video.');
-            let n = 0;
-            for (const f of files.files) { await upload(j.id, f, { kind: kind.ctl.value, phase: phase.ctl.value, caption: caption.ctl.value }); n++; }
+            const n = await uploadMany(j.id, [...files.files], { kind: kind.ctl.value, phase: phase.ctl.value, caption: caption.ctl.value }, uploadStatus);
             notice('success', `${n} file${n === 1 ? '' : 's'} uploaded.`); draw(await api(url));
           }, 'btn-dark'));
 
@@ -152,6 +191,7 @@
         const liability = card('Liability record', el('p', { class: 'small text-muted', text: 'Record anything that could become a liability: existing damage, hidden conditions, extra work, moving belongings, or a safety concern. Ask the homeowner for permission on video and have them sign. If they say no, record that and stop work on that item.' }),
           type.wrap, desc.wrap, owner.wrap,
           el('div', { class: 'mb-3' }, el('label', { class: 'form-check' }, agree, ' The homeowner agrees (video and signature required)'), el('label', { class: 'form-check' }, refuse, ' The homeowner does NOT agree')), consentBox,
+          el('p', { class: 'small text-muted', text: d.consentPrivacy }),
           button('Save liability record', async () => {
             let videoId = '';
             if (agree.checked) {
@@ -160,7 +200,7 @@
               videoId = (await upload(j.id, video.files[0], { kind: 'consent', caption: `Consent video: ${owner.ctl.value}` })).id;
             }
             draw(await send(`${url}/liability`, { type: type.ctl.value, description: desc.ctl.value, homeowner: owner.ctl.value, consented: agree.checked, videoId, signature: agree.checked ? pad.data() : '' }));
-            notice('success', 'Liability record saved and the office was notified.');
+            notice('success', agree.checked ? 'Liability record and consent evidence saved. The office was notified.' : 'Homeowner decline recorded. Stop work on this item; the office was notified.');
           }, 'btn-danger'));
 
         const history = el('div', {}, el('h4', { class: 'h6 mt-3', text: 'Previous check-ins' }), d.reports.length ? d.reports.slice(0, 14).map(r => el('div', { class: 'small border-bottom py-1' }, el('strong', { text: `${day(r.date)} \u00b7 ${r.statusLabel} \u00b7 ${r.percent}% ` }), `\u2013 ${r.by}`, el('div', { class: 'pre-wrap', text: r.summary }), r.remaining ? el('div', { class: 'text-muted pre-wrap', text: `Left: ${r.remaining}` }) : null, r.problems ? el('div', { class: 'text-danger pre-wrap', text: `Problems: ${r.problems}` }) : null)) : el('p', { class: 'small text-muted', text: 'No check-ins yet.' }),
@@ -488,7 +528,7 @@
     root.className = '';
     root.replaceChildren(
       el('div', { class: 'd-flex flex-wrap justify-content-between align-items-center gap-3 mb-3' }, el('div', {}, el('h2', { class: 'h3 mb-0', text: `Hi, ${summary.profile.name.split(' ')[0]}` }), el('span', { class: 'text-muted', text: [summary.profile.roleTitle, summary.profile.email].filter(Boolean).join(' \u00b7 ') })),
-        el('div', { class: 'd-flex gap-2' }, summary.profile.canEstimate ? el('a', { class: 'btn btn-sm btn-brass', href: '/estimator/', text: 'Estimator' }) : null, button('Sign out', async () => { await send('/api/auth/logout', {}); await boot(); }))),
+        el('div', { class: 'd-flex flex-wrap gap-2' }, summary.profile.canEstimate ? el('a', { class: 'btn btn-sm btn-brass', href: '/estimator/', text: 'Estimator' }) : null, button('Sign out', async () => { await send('/api/auth/logout', {}); await boot(); }))),
       el('ul', { class: 'nav nav-pills mb-4 flex-wrap', role: 'tablist' }, TABS.map(([id, label]) => el('li', { class: 'nav-item' }, el('a', { class: `nav-link${id === tab ? ' active' : ''}`, href: `#${id}`, 'aria-current': id === tab ? 'page' : null, onclick: e => { e.preventDefault(); tab = id; history.replaceState(null, '', `#${id}`); render().catch(() => {}); } }, label, badgeFor[id] ? el('span', { class: 'badge text-bg-danger ms-2', text: String(badgeFor[id]) }) : null)))),
       clockBar(), alertBox, body);
     await SECTIONS[tab](body);

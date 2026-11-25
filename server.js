@@ -2,6 +2,7 @@ const http = require('node:http');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const zlib = require('node:zlib');
+const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const brotli = promisify(zlib.brotliCompress), gzip = promisify(zlib.gzip);
 const compressible = new Set(['.html', '.css', '.js', '.svg', '.json', '.xml', '.txt']);
@@ -10,6 +11,8 @@ const { createMailer, createReceiver } = require('./lib/mailer');
 const { createTemplates } = require('./lib/emails');
 const { createGoogleCalendar } = require('./lib/gcal');
 const { createApi } = require('./lib/api');
+const { validateConfig } = require('./lib/config');
+const { createClientIp } = require('./lib/client-ip');
 
 const distDir = path.join(__dirname, 'dist');
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.jpg': 'image/jpeg', '.mp4': 'video/mp4', '.xml': 'application/xml; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.webmanifest': 'application/manifest+json; charset=utf-8' };
@@ -27,28 +30,31 @@ const headers = {
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; worker-src 'self'; manifest-src 'self'"
 };
 
-function createServer({
-  dataDir = process.env.DATA_DIR || path.join(__dirname, 'data'),
-  siteUrl = (process.env.SITE_URL || 'http://localhost:3000').replace(/\/$/, ''),
-  mailer = createMailer(),
-  notifyEmail = process.env.NOTIFY_EMAIL || '',
-  adminEmails = (process.env.ADMIN_EMAILS || '').split(','),
-  replyDomain = process.env.REPLY_DOMAIN || '',
-  webhookSecret = process.env.RESEND_WEBHOOK_SECRET || '',
-  receiver = process.env.RESEND_API_KEY ? createReceiver() : null,
-  gcal = createGoogleCalendar(),
-  trustProxy = process.env.TRUST_PROXY === '1'
-} = {}) {
+function createServer(options = {}) {
+  const config = options.config || validateConfig();
+  const dataDir = options.dataDir ?? config.dataDir;
+  const siteUrl = options.siteUrl ?? config.siteUrl;
+  const notifyEmail = options.notifyEmail ?? config.notifyEmail;
+  const adminEmails = options.adminEmails ?? config.adminEmails;
+  const replyDomain = options.replyDomain ?? config.replies.domain;
+  const webhookSecret = options.webhookSecret ?? config.replies.webhookSecret;
+  const mailer = options.mailer || createMailer(config.email);
+  const receiver = options.receiver !== undefined ? options.receiver : (config.replies.enabled ? createReceiver({ apiKey: config.email.apiKey }) : null);
+  const gcal = options.gcal || createGoogleCalendar({ calendarId: config.calendar.id, credentials: config.calendar.credentials });
+  const clientIp = options.clientIp || createClientIp({
+    trustProxy: options.trustProxy ?? config.trustProxy,
+    trustedProxyIps: options.trustedProxyIps ?? config.trustedProxyIps
+  });
   const db = openDb(dataDir);
   const templates = createTemplates(siteUrl);
-  const api = createApi({ db, dataDir, mailer, templates, siteUrl, notifyEmail, adminEmails, replyDomain, webhookSecret, receiver, gcal, trustProxy, secureCookies: siteUrl.startsWith('https://') });
+  const api = createApi({ db, dataDir, mailer, templates, siteUrl, notifyEmail, adminEmails, replyDomain, webhookSecret, receiver, gcal, clientIp, secureCookies: siteUrl.startsWith('https://'), paymentsEnabled: config.paymentsEnabled });
   const recent = new Map();
 
   const sendJson = (res, status, body) => {
     res.writeHead(status, { ...headers, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
     res.end(JSON.stringify(body));
   };
-  const mail = async message => { try { await mailer(message); } catch (error) { console.error('Email failed:', error.message); } };
+  const outboxId = key => crypto.createHash('sha256').update(key).digest('hex').slice(0, 32);
 
   async function readBody(req, limit) {
     let size = 0;
@@ -62,7 +68,7 @@ function createServer({
   }
 
   async function submit(req, res) {
-    const ip = trustProxy ? (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress : req.socket.remoteAddress;
+    const ip = clientIp(req);
     const now = Date.now();
     const times = (recent.get(ip) || []).filter(t => now - t < WINDOW);
     if (times.length >= 10) {
@@ -99,16 +105,17 @@ function createServer({
     if (visit) clean.message = `Preferred visit: ${visit}${clean.message ? '\n\n' + clean.message : ''}`;
     delete clean.preferredDate; delete clean.preferredTime;
     clean.receivedAt = new Date().toISOString();
+    const rawKey = String(req.headers['idempotency-key'] || input.idempotencyKey || '').trim();
+    if (rawKey.length > 128) return sendJson(res, 400, { error: 'The idempotency key is invalid.' });
+    const legacyFingerprint = crypto.createHash('sha256').update(JSON.stringify({ ...clean, receivedAt: undefined, marketing: input.marketing === true })).digest('hex');
+    const idempotencyKey = rawKey || `legacy-${legacyFingerprint}`;
     try {
-      await fs.appendFile(path.join(dataDir, 'submissions.jsonl'), JSON.stringify(clean) + '\n', { mode: 0o600 });
+      persistLead(clean, input.marketing === true, idempotencyKey);
     } catch (error) {
       console.error('Unable to save submission:', error);
       return sendJson(res, 500, { error: 'We could not send your information right now. Please try again later.' });
     }
-    db.prepare('INSERT INTO contacts (type, name, email, phone, location, interest, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(clean.type, clean.name, clean.email, clean.phone, clean.location, clean.interest, clean.message, clean.receivedAt);
-    saveLead(clean, input.marketing === true);
-    await mail({ to: clean.email, ...templates.leadConfirmation({ name: clean.name, type: clean.type }) });
-    if (notifyEmail) await mail({ to: notifyEmail, replyTo: clean.email, ...templates.leadAlert({ submission: clean }) });
+    await processLeadNotifications(idempotencyKey);
     return sendJson(res, 201, { message: 'Thanks for reaching out.' });
   }
 
@@ -126,6 +133,51 @@ function createServer({
     }
     db.prepare("UPDATE customers SET phone = CASE WHEN phone = '' THEN ? ELSE phone END, updated_at = ? WHERE id = ?").run(c.phone, now, found.id);
     if (optin) db.prepare('UPDATE customers SET marketing_optout = 0, marketing_optin_at = ? WHERE id = ?').run(now, found.id);
+  }
+
+  function persistLead(c, optin, key) {
+    const existing = db.prepare('SELECT id FROM contacts WHERE idempotency_key = ?').get(key);
+    if (existing) return;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const contact = db.prepare('INSERT INTO contacts (type, name, email, phone, location, interest, message, created_at, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(c.type, c.name, c.email, c.phone, c.location, c.interest, c.message, c.receivedAt, key);
+      saveLead(c, optin);
+      const messages = [{ to: c.email, ...templates.leadConfirmation({ name: c.name, type: c.type }) }];
+      if (notifyEmail) messages.push({ to: notifyEmail, replyTo: c.email, ...templates.leadAlert({ submission: c }) });
+      db.prepare('INSERT INTO notification_jobs (idempotency_key, contact_id, payload, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+        .run(key, Number(contact.lastInsertRowid), JSON.stringify(messages), c.receivedAt, c.receivedAt);
+      db.exec('COMMIT');
+    } catch (error) {
+      try { db.exec('ROLLBACK'); } catch { /* transaction did not begin */ }
+      throw error;
+    }
+  }
+
+  async function processLeadNotifications(key) {
+    const now = new Date().toISOString();
+    const staleBefore = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const job = db.prepare("UPDATE notification_jobs SET status = 'processing', attempts = attempts + 1, updated_at = ? WHERE idempotency_key = ? AND (status IN ('pending', 'failed') OR (status = 'processing' AND updated_at < ?)) RETURNING *").get(now, key, staleBefore);
+    if (!job) return;
+    const sent = JSON.parse(job.sent_messages);
+    let skipped = false;
+    try {
+      const messages = JSON.parse(job.payload);
+      for (let index = 0; index < messages.length; index++) {
+        if (sent.includes(index)) continue;
+        const result = await mailer({ ...messages[index], idempotencyKey: `lead-${outboxId(key)}-${index}` });
+        skipped = skipped || result?.skipped === true;
+        sent.push(index);
+        db.prepare('UPDATE notification_jobs SET sent_messages = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(sent), new Date().toISOString(), job.id);
+      }
+      const now = new Date().toISOString();
+      db.prepare("UPDATE notification_jobs SET status = ?, sent_at = ?, last_error = '', updated_at = ? WHERE id = ?")
+        .run(skipped ? 'skipped' : 'sent', now, now, job.id);
+    } catch (error) {
+      console.error('Lead notification failed:', error.message);
+      db.prepare("UPDATE notification_jobs SET status = 'failed', last_error = ?, updated_at = ? WHERE id = ?")
+        .run(String(error.message || error).slice(0, 1000), new Date().toISOString(), job.id);
+    }
   }
 
   async function serveFile(req, res, file, status = 200) {
@@ -213,8 +265,15 @@ function createServer({
 }
 
 if (require.main === module) {
-  const port = Number(process.env.PORT || 3000);
-  const server = createServer().listen(port, process.env.HOST || undefined, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
+  let config;
+  try {
+    config = validateConfig(process.env, { warn: message => console.warn(`Configuration warning: ${message}`) });
+  } catch (error) {
+    console.error(`Configuration error: ${error.message}`);
+    process.exitCode = 1;
+  }
+  if (!config) return;
+  const server = createServer({ config }).listen(config.port, config.host || undefined, () => console.log(`Budget Bath Solutions running on ${config.siteUrl}`));
   // A stray error anywhere (timers, background jobs, unawaited promises) is logged instead of taking the site down.
   let recent = 0;
   const survive = kind => error => {

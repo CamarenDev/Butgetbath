@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { createServer } = require('../server');
 const { openDb } = require('../lib/db');
 const { createAccounts } = require('../scripts/create-accounts');
@@ -34,6 +35,7 @@ test('installer accounts get temporary passwords that must be changed at first s
     assert.equal((await post('/api/auth/change-password', { current: temp, password: 'a-brand-new-pass' }, cookie)).status, 200);
     const me = await (await fetch(base + '/api/auth/me', { headers: { Cookie: cookie } })).json();
     assert.equal(me.user.mustChangePassword, false);
+    assert.equal((await (await fetch(base + '/api/provisioning', { headers: { Cookie: cookie } })).json()).provisioning.state, 'admin');
     assert.equal((await post('/api/auth/login', { email: 'admin@example.com', password: temp })).status, 401);
   } finally { server.close(); fs.rmSync(dataDir, { recursive: true, force: true }); }
 });
@@ -51,4 +53,48 @@ test('registration confirms immediately when no email provider is configured', a
     const login = await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'pat@example.com', password: 'correct-horse-1' }) });
     assert.equal((await login.json()).user.verified, true);
   } finally { server.close(); fs.rmSync(dataDir, { recursive: true, force: true }); }
+});
+
+test('expired and duplicate account tokens transition provisioning safely', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-account-tokens-'));
+  const sent = [];
+  const server = createServer({ dataDir, siteUrl: 'http://localhost', mailer: async message => sent.push(message) });
+  await new Promise(resolve => server.listen(0, resolve));
+  const base = `http://localhost:${server.address().port}`;
+  const post = (url, body, cookie) => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie && { Cookie: cookie }) }, body: JSON.stringify(body) });
+  const lastToken = to => sent.filter(m => m.to === to).at(-1).text.match(/token=([\w-]+)/)[1];
+  const expire = token => {
+    const db = openDb(dataDir);
+    db.prepare('UPDATE tokens SET expires_at = 0 WHERE token_hash = ?').run(crypto.createHash('sha256').update(token).digest('hex'));
+    db.close();
+  };
+  try {
+    assert.equal((await post('/api/auth/register', { name: 'Pat', email: 'pat@example.com', password: 'correct-horse-1', consent: true })).status, 201);
+    const login = await post('/api/auth/login', { email: 'pat@example.com', password: 'correct-horse-1' });
+    const cookie = login.headers.get('set-cookie').split(';')[0];
+    assert.equal((await (await fetch(base + '/api/provisioning', { headers: { Cookie: cookie } })).json()).provisioning.state, 'invited');
+
+    const verify = lastToken('pat@example.com');
+    expire(verify);
+    assert.equal((await post('/api/auth/verify', { token: verify })).status, 400);
+
+    await post('/api/auth/forgot', { email: 'pat@example.com' });
+    const expiredReset = lastToken('pat@example.com');
+    expire(expiredReset);
+    assert.equal((await post('/api/auth/reset', { token: expiredReset, password: 'replacement-password' })).status, 400);
+
+    await post('/api/auth/forgot', { email: 'pat@example.com' });
+    const reset = lastToken('pat@example.com');
+    const resets = await Promise.all([
+      post('/api/auth/reset', { token: reset, password: 'replacement-password' }),
+      post('/api/auth/reset', { token: reset, password: 'replacement-password' })
+    ]);
+    assert.deepEqual(resets.map(r => r.status).sort(), [200, 400]);
+    const verifiedLogin = await post('/api/auth/login', { email: 'pat@example.com', password: 'replacement-password' });
+    const verifiedCookie = verifiedLogin.headers.get('set-cookie').split(';')[0];
+    assert.equal((await (await fetch(base + '/api/provisioning', { headers: { Cookie: verifiedCookie } })).json()).provisioning.state, 'verified');
+  } finally {
+    server.close();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });

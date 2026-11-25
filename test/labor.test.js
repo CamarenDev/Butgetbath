@@ -5,12 +5,13 @@ const { plan, workDay, scheduleFrom } = require('../lib/bathroom');
 const { CUSHION, LIBRARY, SOURCES, HANDYMAN_REVISIONS, bathroomPhases } = require('../lib/labor-times');
 const { taskHours } = require('../lib/install-details');
 const { procedureFor, bathroomProcess, handymanProcess, BATH_STEPS } = require('../lib/playbook');
+const { calibrate } = require('../lib/learning');
 
 const rows = TASKS.map(t => ({ code: t.code, category: t.category, name: t.name, unit: t.unit, hrs: HANDYMAN_REVISIONS[t.code]?.[1] ?? t.hrs, mat_cents: 0, trade: t.trade, crew: t.crew || 1, min_hrs: t.min || 0, tags: t.tags }));
 
 test('labor library cites a source for every figure and keeps the 8% cushion', () => {
   assert.equal(CUSHION, 0.08);
-  for (const e of LIBRARY) { assert.ok(SOURCES[e.src], e.code); assert.ok(e.low <= e.typ && e.typ <= e.high, e.code); }
+  for (const e of LIBRARY) { assert.ok(SOURCES[e.src], e.code); assert.equal(SOURCES[e.src].verificationStatus, 'provisional', e.code); assert.ok(e.low <= e.typ && e.typ <= e.high, e.code); }
 });
 
 test('the schedule adds the cushion to every working phase', () => {
@@ -24,6 +25,21 @@ test('the schedule adds the cushion to every working phase', () => {
   const outlet = rows.find(r => r.code === 'el-outlet');
   assert.equal(line.qty, taskHours(outlet, 1, CUSHION).total);
   assert.ok(line.qty > HANDYMAN_REVISIONS['el-outlet'][1] * 1.08);
+  assert.throws(() => scheduleFrom(phases, Infinity, workDay()), /hoursFactor/);
+  assert.throws(() => scheduleFrom(phases, 1, workDay({ work_start: '17:00', work_end: '08:00' })), /leave at least two|end after/);
+  assert.throws(() => scheduleFrom(phases, 1, workDay(), '2026-02-30'), /calendar date/);
+});
+
+test('domain fixtures retain explicit zero inputs and distinguish missing learning facts', () => {
+  const zero = plan({ floorSf: 0, shower: 'walk_in', showerLength: 0, showerWidth: 0, wallTileSf: 0 });
+  assert.equal(zero.cfg.floor, 0);
+  assert.equal(zero.cfg.wallTileSf, 0);
+  assert.equal(zero.cfg.showerWalls, 0);
+  const learned = calibrate([{ id: 1, base_cost_cents: 10000, actual_cost_cents: 10000, actual_hours: 0, predicted_cost_cents: 10000, base_by_section: '{}', actual_by_section: '{}', features: JSON.stringify({ hoursBase: 10 }) }]);
+  assert.equal(learned.outcomes[0].actualHours, 0);
+  assert.equal(learned.hoursJobs, 0);
+  assert.equal(learned.hoursFactor, 1);
+  assert.throws(() => taskHours(rows[0], Infinity, CUSHION), /quantity/);
 });
 
 test('a full remodel is planned from research-backed times in a realistic range', () => {

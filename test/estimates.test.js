@@ -21,6 +21,12 @@ test('estimate math: waste, markup, contingency, tax on materials only, discount
   assert.equal(totals.taxCents, 1375);
   assert.equal(totals.totalCents, 26250 + 1313 - 1000 + 1375);
   assert.equal(totals.balanceCents, totals.totalCents - 5000);
+  const zero = computeTotals({ ...estimate, discount_cents: 0 }, [], 0);
+  assert.equal(zero.totals.paidCents, 0);
+  assert.equal(zero.totals.totalCents, 0);
+  assert.throws(() => computeTotals({ ...estimate, tax_bp: Infinity }, items, 0), /finite/);
+  assert.throws(() => computeTotals(estimate, [{ ...items[0], qty: NaN }], 0), /finite/);
+  assert.throws(() => computeTotals(estimate, [{ ...items[0], cost_cents: 1.5 }], 0), /integer/);
 });
 
 test('insights cover pricing, risk, schedule and code', () => {
@@ -37,6 +43,8 @@ test('insights cover pricing, risk, schedule and code', () => {
   assert.ok(r.confidence.lowCents < totals.totalCents && r.confidence.highCents > totals.totalCents);
   assert.equal(r.payments.reduce((n, p) => n + p.cents, 0), totals.totalCents);
   assert.ok(r.fan.cfm >= 50 && r.tile.orderSf > r.tile.sf && r.shopping.length && r.completeness.missing.length);
+  assert.equal(r.verification.prices.verificationStatus, 'provisional');
+  assert.equal(r.verification.legalAndCode.verificationStatus, 'provisional');
 });
 
 test('codes: permits follow the scope and cities resolve', () => {
@@ -49,6 +57,9 @@ test('codes: permits follow the scope and cities resolve', () => {
   const swap = requirements(plan({ toilet: true, flooring: 'lvp' }).cfg, 'Nowhereville');
   assert.ok(!swap.permitNeeded && swap.noPermitNote && swap.city === null);
   assert.equal(requirements(plan({}).cfg, 'Chicago', [{ city: 'Chicago', dept: 'Mine', notes: [], verified: true }]).city.dept, 'Mine');
+  assert.equal(gut.verification.city.verificationStatus, 'provisional');
+  assert.equal(gut.verification.state.verificationStatus, 'provisional');
+  assert.match(gut.disclaimer, /PROVISIONAL/);
 });
 
 test('tool checklist adapts to the job', () => {
@@ -111,6 +122,8 @@ test('estimator: permissions, takeoff, customer signing, documents and Stripe pa
     assert.equal(smart.res.status, 200);
     assert.ok(smart.data.notes.some(n => /lead-safe/i.test(n)) && smart.data.notes.some(n => /stairs/i.test(n)));
     assert.ok(smart.data.optionalCount > 0 && smart.data.totalCents > 0);
+    assert.equal((await call('admin', 'POST', '/api/estimator/advice', { inputs: { length: 61 } })).res.status, 400);
+    assert.equal((await call('admin', 'POST', '/api/estimator/advice', { inputs: { startDate: '2026-02-30' } })).res.status, 400);
     const plain = await call('admin', 'POST', '/api/estimator/advice', { inputs: { homeYear: 2018, level: 'first', condition: 'good', demo: true, flooring: 'tile', length: 8, width: 6, shower: 'walk_in' } });
     assert.ok(smart.data.totalCents > plain.data.totalCents);
     const boot = (await call('admin', 'GET', '/api/estimator/bootstrap')).data;
@@ -137,6 +150,7 @@ test('estimator: permissions, takeoff, customer signing, documents and Stripe pa
     assert.ok(sh.productiveHours === 7.5 && sh.lunchMin === 30 && !sh.saturday && crewSmall.notes.some(n => /lunch/i.test(n)));
     assert.ok(crewSmall.schedule.phases.every(p => ![0, 6].includes(new Date(`${p.start}T12:00:00Z`).getUTCDay())));
     assert.equal((await call('admin', 'POST', '/api/estimator/settings', { work_start: '8am' })).res.status, 400);
+    assert.equal((await call('admin', 'POST', '/api/estimator/settings', { work_start: '17:00', work_end: '08:00' })).res.status, 400);
     assert.equal((await call('admin', 'POST', '/api/estimator/settings', { work_start: '07:00', work_end: '15:00', lunch_min: 60, break_min: 0, work_saturday: '1' })).res.status, 200);
     const longDay = (await call('admin', 'POST', '/api/estimator/advice', { inputs: { length: 8, width: 5, flooring: 'tile', shower: 'tub_surround', demo: true, startDate: '2026-12-07' } })).data;
     assert.equal(longDay.schedule.shift.productiveHours, 7);

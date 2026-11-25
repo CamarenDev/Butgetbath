@@ -39,6 +39,7 @@ test('employee portal, jobs, hours, contracts, knowledge base and applications',
     const hired = await call('admin', 'POST', '/api/admin/employees', { name: 'Hank Handy', email: 'hank@example.com', phone: '555-0100', skipOnboarding: true, roleTitle: 'Tile setter', rate: 25, applicationId: apps[0].id });
     assert.equal(hired.res.status, 201);
     const empId = hired.data.id;
+    assert.equal((await call('admin', 'GET', `/api/admin/employees/${empId}`)).data.employee.provisioning.state, 'invited');
     assert.equal((await call('admin', 'POST', '/api/admin/employees', { name: 'Hank', email: 'HANK@example.com' })).res.status, 409);
     const linked = (await call('admin', 'GET', '/api/admin/applications')).data.applications[0];
     assert.equal(linked.status, 'hired');
@@ -51,6 +52,10 @@ test('employee portal, jobs, hours, contracts, knowledge base and applications',
     assert.equal(hr.staff.active, 1);
     await call('hank', 'POST', '/api/auth/reset', { token: token('hank@example.com'), password: 'correct-horse-2' });
     assert.equal((await call('hank', 'POST', '/api/auth/login', { email: 'hank@example.com', password: 'correct-horse-2' })).res.status, 200);
+    const employeeReady = (await call('hank', 'GET', '/api/provisioning')).data.provisioning;
+    assert.equal(employeeReady.state, 'employee');
+    assert.equal(employeeReady.ready, true);
+    assert.equal((await call('admin', 'GET', '/api/provisioning')).data.provisioning.state, 'admin');
     assert.equal((await call('hank', 'GET', '/api/admin/employees')).res.status, 403);
     assert.equal((await call('hank', 'GET', '/api/employee/me')).data.profile.rateCents, 2500);
 
@@ -72,6 +77,9 @@ test('employee portal, jobs, hours, contracts, knowledge base and applications',
 
     // Hours and pay
     assert.equal((await call('hank', 'POST', '/api/employee/hours', { date: new Date().toISOString().slice(0, 10), hours: 4, jobId: job })).res.status, 201);
+    const duplicateHours = await call('hank', 'POST', '/api/employee/hours', { date: new Date().toISOString().slice(0, 10), hours: 4, jobId: job });
+    assert.equal(duplicateHours.res.status, 200);
+    assert.equal(duplicateHours.data.duplicate, true);
     assert.equal((await call('hank', 'POST', '/api/employee/hours', { date: '2020-01-01', hours: 4 })).res.status, 400);
     const entry = (await call('hank', 'GET', '/api/employee/hours')).data.entries[0];
     await call('admin', 'POST', `/api/admin/hours/${entry.id}/approve`, {});

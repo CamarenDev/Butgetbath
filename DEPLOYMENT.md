@@ -21,11 +21,13 @@ Paths: code `/opt/budgetbath`, data (database, uploads) `/var/lib/budgetbath`, s
 Requires Node 24+ (uses built-in `node:sqlite`). No database server needed.
 
 ```
-npm install
+npm ci
 npm run build   # generates dist/
 npm start       # builds, loads .env, serves on PORT (default 3000)
 npm test
 ```
+
+`npm ci` is required for manual and automated setup so the checked-in lockfile is authoritative. `npm start` refuses startup when core settings are malformed and marks optional integrations as disabled/degraded when their required configuration is incomplete. Keep credentials only in the service environment or `.env`, never in source control.
 
 ## Environment (.env, never commit)
 - `RESEND_API_KEY` – Resend API key
@@ -34,10 +36,42 @@ npm test
 - `ADMIN_EMAILS` – comma-separated verified accounts allowed to use the admin portal at `/admin/` (contacts, support, forum, reviews, projects, images, visitors, users, settings) and `/account/admin/`
 - `SITE_URL` – public URL (https enables Secure cookies)
 - `DATA_DIR` – SQLite DB, uploads and lead log (default `./data`); back this up
-- `TRUST_PROXY=1` when behind a reverse proxy
+- `TRUST_PROXY=1` only when the application is unreachable except through the configured reverse proxy; direct client access can spoof forwarding headers
 - `REPLY_DOMAIN`, `RESEND_WEBHOOK_SECRET` – email replies (see below)
 
-Without a Resend key, emails are logged to the console.
+`.env.example` is the authoritative variable list and includes optional Stripe, AI, location-retention, backup and integration settings. Without a Resend key, sending remains explicitly disabled rather than reporting delivery success.
+
+## Health, logs, backup and recovery
+
+- Health: `GET /healthz` returns 200 when the Node process and database can answer requests. Monitor that endpoint plus disk space, service restarts and the configured email/Calendar/Zoho capability states.
+- Logs: use `journalctl -u budgetbath` (or your process manager's equivalent). Set `LOG_REQUESTS=1` for request summaries; do not enable it as a substitute for provider delivery or error monitoring.
+- Backup while the app is running with:
+
+```
+node scripts/storage-backup.js backup --data-dir /var/lib/budgetbath --output /secure/backups/budgetbath-YYYYMMDDTHHMMSS
+node scripts/storage-backup.js verify --backup /secure/backups/budgetbath-YYYYMMDDTHHMMSS
+```
+
+The backup uses a SQLite snapshot, verifies integrity, hashes referenced uploads, and refuses an existing output directory. Store backups off-host with the same access controls as the live data.
+
+- Restore: stop the service, choose an empty `DATA_DIR`, and run:
+
+```
+sudo systemctl stop budgetbath
+node scripts/storage-backup.js restore --backup /secure/backups/budgetbath-YYYYMMDDTHHMMSS --data-dir /var/lib/budgetbath-restore
+node scripts/storage-backup.js verify --backup /var/lib/budgetbath-restore
+sudo chown -R budgetbath:budgetbath /var/lib/budgetbath-restore
+sudo systemctl start budgetbath
+```
+
+Point the service's `DATA_DIR` at the restored directory before starting it, verify `/healthz`, sign-in, uploads and current bookings, then retain the previous directory until the rollback window closes.
+
+- Upgrade: take a verified backup, update `/opt/budgetbath`, run `npm ci` and the deterministic checks, rebuild, restart, and smoke-test health/public/login/booking. To roll back, stop the service, restore the previous code revision and matching verified data backup, rebuild, and restart.
+- Disk pressure: monitor the SQLite WAL/database, `uploads/`, `media/`, and backup volume. Do not copy a live `app.db` manually; use the backup script so database and upload references are consistent.
+
+## Deterministic CI and live-service checks
+
+CI installs from the lockfile and runs tests, the build, syntax checks, installer shell validation, audit and diff checks. Provider smoke tests requiring Resend, Google Calendar or Zoho credentials are opt-in and skipped in deterministic CI. External providers, DNS/TLS, real mailboxes, Search Console and legal/tax/source verification still require production-owner access; the application continues to expose those capabilities as disabled/degraded until verified.
 
 ## Accounts and request tickets
 Free customer accounts (email verification, password reset) let customers upload photos (JPG/PNG/WebP, 8 MB, 10 per message) with a comment on each photo, and talk with your team in a threaded conversation per request. Statuses: Open, In progress, Awaiting customer, Resolved, Closed. Staff (`ADMIN_EMAILS`) work from `/account/admin/` (inbox with "Needs reply" filter), can reply, change status and leave internal notes. Customers get reply and status emails (they can switch these off in their account). Account pages are `noindex`.
@@ -70,3 +104,4 @@ Employees clock in from the Employee portal (**Clock** tab). Tracking starts onl
 - **Review:** Admin > Location (live view, alerts, charts, history, route map) and the Location section of each employee file. Estimator outcomes record which employees worked a job and on which days (AI learning page).
 - Browsers cannot read hardware IDs. Each phone gets a persistent device ID plus its model/OS details when the browser exposes them. Browsers also pause location for backgrounded pages, so employees must keep the portal open (the app keeps the screen awake where supported); gaps are logged and trigger the auto clock-out rules above.
 - `LOCATION_RETENTION_DAYS` (default 400) – GPS points older than this are deleted when someone clocks in.
+- Retention maintenance now runs independently on a bounded interval; it does not rely on a future employee clock-in to remove expired location data.

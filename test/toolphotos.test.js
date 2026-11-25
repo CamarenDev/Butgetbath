@@ -41,6 +41,8 @@ test('tool photos: admin uploads, crew see, others blocked, bad files rejected',
     const saved = await (await call('admin', 'POST', `/api/admin/tools/photo/${key}`, png, octet)).json();
     const row = saved.tools.find(t => t.key === key);
     assert.ok(row.photo && row.credit === 'Our shop' && row.sourceUrl === 'https://example.com/glasses');
+    assert.equal(row.sourceMetadata.verified, false);
+    assert.equal(row.sourceMetadata.type, 'administrator supplied');
     assert.ok(saved.tools.length === new Set(CATALOG.map(t => keyOf(t.name))).size);
 
     const img = await call('admin', 'GET', `/api/tools/photo/${key}`);

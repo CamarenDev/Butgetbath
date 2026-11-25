@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 
 execFileSync('node', ['build.js'], { cwd: path.join(__dirname, '..') });
 const { createServer } = require('../server');
@@ -327,7 +327,9 @@ test('appointments: staff schedule, customer gets confirmation with .ics, calend
     assert.deepStrictEqual(mails.map(m => m.to).sort(), ['casey@example.test', 'owner@example.test']);
     assert.match(Buffer.from(mails.find(m => m.to === 'casey@example.test').attachments[0].content, 'base64').toString(), /METHOD:CANCEL/);
     assert.deepStrictEqual(pushed.at(-1), ['remove', 'g1']);
-    assert.strictEqual((await call(`/api/appointments/${appt.id}/cancel`, {}, cust)).status, 400);
+    const repeatedCancel = await call(`/api/appointments/${appt.id}/cancel`, {}, cust);
+    assert.strictEqual(repeatedCancel.status, 200, await repeatedCancel.clone().text());
+    assert.strictEqual((await repeatedCancel.json()).duplicate, true);
   } finally { srv.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -349,6 +351,45 @@ test('landmarks, image hints and breadcrumbs are present', async () => {
   assert.match(guide, /"@type":"BreadcrumbList"/);
   assert.match(guide, /aria-current="page"/);
   assert.match(guide, /fetchpriority="high"/);
+});
+
+test('public UX markup exposes accessible states, controls and retry behavior', async () => {
+  const gallery = await (await fetch(base + '/gallery/')).text();
+  assert.match(gallery, /data-portfolio="projects" aria-live="polite" aria-busy="true"/);
+  assert.match(gallery, /data-portfolio="reviews" aria-live="polite" aria-busy="true"/);
+  assert.match(gallery, /Loading project photos/);
+  assert.match(gallery, /aria-label="Close project viewer"/);
+  assert.match(gallery, /aria-label="Previous project"/);
+  assert.match(gallery, /aria-label="Next project"/);
+  assert.match(gallery, /data-review-form novalidate/);
+  const form = await (await fetch(base + '/contact/')).text();
+  assert.match(form, /<label for="name"/);
+  assert.match(form, /aria-live="polite"/);
+  const source = fs.readFileSync(path.join(__dirname, '../assets/enhance.js'), 'utf8');
+  assert.match(source, /first|bad\[0\]\.focus\(\)/);
+  assert.match(source, /coarse\.matches/);
+  assert.match(source, /saveData/);
+  assert.match(source, /IntersectionObserver/);
+});
+
+test('metadata uses configured page dates and verified article citations', async () => {
+  const articlePath = '/homeowner-help/bathroom-remodel-cost-2026/';
+  const article = await (await fetch(base + articlePath)).text();
+  assert.match(article, new RegExp(`<link rel="canonical" href="https://budgetbathsolutions\\.com${articlePath}">`));
+  assert.match(article, /property="article:modified_time" content="2026-11-25"/);
+  assert.match(article, /property="og:image" content="https:\/\/budgetbathsolutions\.com\/og-image\.png"/);
+  assert.match(article, /Sources and verification/);
+  assert.match(article, /datetime="2026-11-25"/);
+  assert.match(article, /https:\/\/www\.homedepot\.com\/services\/c\/cost-bathroom-remodel/);
+  const articleLd = [...article.matchAll(/<script type="application\/ld\+json">([^]*?)<\/script>/g)]
+    .map(m => JSON.parse(m[1])).find(x => x['@type'] === 'Article');
+  assert.strictEqual(articleLd.dateModified, '2026-11-25');
+  assert.ok(articleLd.citation.every(url => /^https:\/\//.test(url)));
+  const service = await (await fetch(base + '/services/tile-installation/')).text();
+  assert.doesNotMatch(service, /property="article:modified_time"/);
+  assert.match(service, /meta name="robots" content="index, follow/);
+  const privatePage = await (await fetch(base + '/account/')).text();
+  assert.match(privatePage, /meta name="robots" content="noindex, follow"/);
 });
 
 test('SEO audit: unique titles, one h1, valid JSON-LD, town and cost pages, llms.txt', async () => {
@@ -387,4 +428,24 @@ test('SEO generator keeps lastmod stable until a page really changes and lists e
   assert.match(first.files['robots.txt'], /Sitemap: https:\/\/example.com\/sitemap.xml/);
   assert.equal(same.state['/'].lastmod, '2026-01-01');
   assert.equal(same.state['/a/'].lastmod, '2026-02-02');
+});
+
+test('build output guard rejects destructive or non-generated targets', () => {
+  for (const target of ['.', '..', 'data', 'assets']) {
+    const result = spawnSync(process.execPath, ['build.js'], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env, BUILD_OUT: target },
+      encoding: 'utf8'
+    });
+    assert.notStrictEqual(result.status, 0, target);
+    assert.match(result.stderr, /Refusing unsafe BUILD_OUT/);
+  }
+  const isolated = spawnSync(process.execPath, ['build.js'], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, BUILD_OUT: path.join(__dirname, '..', 'dist.test-build-safety') },
+    encoding: 'utf8'
+  });
+  assert.equal(isolated.status, 0, isolated.stderr);
+  assert.ok(fs.existsSync(path.join(__dirname, '..', 'dist.test-build-safety', 'index.html')));
+  fs.rmSync(path.join(__dirname, '..', 'dist.test-build-safety'), { recursive: true, force: true });
 });

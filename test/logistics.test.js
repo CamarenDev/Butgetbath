@@ -14,6 +14,11 @@ test('stairs, truck rental, debris mode and travel change the price and the crew
   const t = logistics.travel({ driveMiles: 20, tollsOneWay: 2.5 }, { days: 4, peakCrew: 2 });
   assert.equal(t.miles > 160, true);
   assert.ok(t.lines.some(l => l.code === 'lg-tolls' && l.cost_cents === 250));
+  assert.equal(logistics.resolve({ supplyTrips: 0 }).trips, 0);
+  assert.throws(() => logistics.resolve({ stairFlights: 11 }), /stairFlights/);
+  assert.throws(() => logistics.resolve({ supplyTrips: true }), /numeric/);
+  assert.throws(() => logistics.build(flatCfg(), { pieces: Infinity, yards: 0, tons: 0 }), /pieces/);
+  function flatCfg() { return logistics.resolve({ supplyTrips: 0 }); }
 });
 
 test('the estimator advice, PDF and crew brief include logistics, roles and cleanup', async () => {
