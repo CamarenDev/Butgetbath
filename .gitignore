@@ -3,4 +3,5 @@ dist/
 dist.next/
 dist.old/
 data/
+tmp/
 .env
