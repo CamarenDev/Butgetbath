@@ -86,9 +86,11 @@
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-  // Motion: floating particles in hero bands, staggered reveals and pointer-aware buttons
+  // Motion: only animate on capable, in-view surfaces. Data/coarse/small contexts stay still.
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
-  if (!calm.matches) {
+  const coarse = matchMedia('(pointer: coarse)');
+  const saveData = navigator.connection && navigator.connection.saveData;
+  if (!calm.matches && !coarse.matches && !saveData && window.innerWidth >= 481) {
     document.querySelectorAll('.hero, .page-hero, .cta-band').forEach(band => {
       const canvas = el('canvas', { class: 'particles', 'aria-hidden': 'true' });
       band.prepend(canvas);
@@ -103,6 +105,7 @@
         dots = Array.from({ length: n }, () => ({ x: Math.random() * w, y: Math.random() * h, r: 1 + Math.random() * 2.2, vx: (Math.random() - .5) * .25, vy: -.1 - Math.random() * .35, a: .25 + Math.random() * .5 }));
       };
       const tick = () => {
+        if (calm.matches || coarse.matches || saveData || window.innerWidth < 481) { raf = 0; ctx.clearRect(0, 0, w, h); return; }
         ctx.clearRect(0, 0, w, h);
         for (const d of dots) {
           d.x += d.vx; d.y += d.vy;
@@ -119,8 +122,9 @@
       };
       band.addEventListener('pointermove', e => { const r = band.getBoundingClientRect(); mouse = { x: e.clientX - r.left, y: e.clientY - r.top }; });
       band.addEventListener('pointerleave', () => { mouse = null; });
-      new ResizeObserver(resize).observe(band);
-      new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) raf = requestAnimationFrame(tick); }).observe(band);
+      if ('ResizeObserver' in window) new ResizeObserver(resize).observe(band);
+      if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible && !raf) raf = requestAnimationFrame(tick); }).observe(band);
+      else visible = true;
       resize();
     });
 
@@ -144,6 +148,45 @@
     }
   }));
 
+  const formFields = form => [...form.querySelectorAll('input:not([type=hidden]):not([type=submit]),select,textarea')].filter(f => !f.disabled && f.name !== 'website');
+  const clearError = field => {
+    const error = document.getElementById(`${field.id || field.name}-error`);
+    if (error) error.remove();
+    const original = field.dataset.describedBy ?? field.getAttribute('aria-describedby') ?? '';
+    field.dataset.describedBy = original;
+    if (original) field.setAttribute('aria-describedby', original); else field.removeAttribute('aria-describedby');
+    field.removeAttribute('aria-invalid');
+    field.classList.remove('is-invalid');
+  };
+  const messageFor = field => {
+    const feedback = field.closest('.col-12,.col-md-6,.col-md-4,.form-check')?.querySelector('.invalid-feedback');
+    return feedback?.textContent.trim() || field.validationMessage || 'Please correct this field.';
+  };
+  const validate = form => {
+    const bad = formFields(form).filter(field => !field.checkValidity());
+    formFields(form).forEach(clearError);
+    form.classList.toggle('was-validated', bad.length > 0);
+    bad.forEach(field => {
+      const id = `${field.id || field.name}-error`;
+      field.classList.add('is-invalid');
+      field.setAttribute('aria-invalid', 'true');
+      field.setAttribute('aria-describedby', [field.dataset.describedBy, id].filter(Boolean).join(' '));
+      const error = el('div', { class: 'field-error', id, text: messageFor(field) });
+      error.setAttribute('role', 'alert');
+      (field.closest('.form-check') || field).insertAdjacentElement('afterend', error);
+    });
+    if (bad[0]) bad[0].focus();
+    return !bad.length;
+  };
+
+  document.addEventListener('submit', event => {
+    const form = event.target.closest?.('form[novalidate]');
+    if (form) validate(form);
+  }, true);
+  document.addEventListener('input', event => {
+    if (event.target.checkValidity?.()) clearError(event.target);
+  });
+
   document.querySelectorAll('form[data-form]').forEach(form => {
     const key = `draft:${location.pathname}:${form.id || form.querySelector('[name=type]')?.value || 'form'}`;
     const fields = [...form.querySelectorAll('input[name],select[name],textarea[name]')].filter(f => !['password', 'hidden', 'checkbox'].includes(f.type) && f.name !== 'website');
@@ -155,20 +198,8 @@
     form.addEventListener('input', () => {
       try { sessionStorage.setItem(key, JSON.stringify({ ...Object.fromEntries(fields.map(f => [f.name, f.value])), _t: Date.now() })); } catch { /* storage unavailable */ }
     });
-    form.addEventListener('submit', () => {
-      const bad = [...form.querySelectorAll(':invalid')];
-      form.querySelectorAll('.field-error').forEach(n => n.remove());
-      form.querySelectorAll('[aria-invalid]').forEach(n => { n.removeAttribute('aria-invalid'); n.removeAttribute('aria-describedby'); });
-      bad.forEach(f => {
-        const id = `${f.id || f.name}-error`;
-        f.setAttribute('aria-invalid', 'true');
-        f.setAttribute('aria-describedby', id);
-        const target = f.closest('.form-check') || f;
-        target.insertAdjacentElement('afterend', el('div', { class: 'field-error', id, text: f.validationMessage }));
-      });
-      if (bad[0]) bad[0].focus();
-    });
-    // Clear the draft once the request has gone through (the page then navigates to /thank-you/)
-    form.addEventListener('submit', () => { if (form.checkValidity()) setTimeout(() => { try { sessionStorage.removeItem(key); } catch { /* ignore */ } }, 1500); });
+    form.addEventListener('bbs:submitted', () => { try { sessionStorage.removeItem(key); } catch { /* storage unavailable */ } });
   });
+
+  window.bbsValidation = { validate, clearError };
 })();

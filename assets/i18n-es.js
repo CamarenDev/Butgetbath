@@ -2,6 +2,20 @@
 // Page names, people, job titles, towns and long-form guide articles stay in English. Account emails are translated in lib/emails.js.
 window.BBS_ES = {
   exact: {
+ "Loading project photos…": "Cargando fotos de proyectos…",
+ "Loading reviews…": "Cargando reseñas…",
+ "Project photos are coming soon.": "Las fotos de los proyectos estarán disponibles pronto.",
+ "Reviews are coming soon.": "Las reseñas estarán disponibles pronto.",
+ "We could not load this right now. Your connection may be offline.": "No pudimos cargar esto ahora. Es posible que su conexión no tenga acceso.",
+ "Try again": "Intentar de nuevo",
+ "Please correct the marked fields and try again. Your information is still here.": "Corrija los campos marcados e inténtelo de nuevo. Su información sigue aquí.",
+ "Please complete the required fields. Your application is still here.": "Complete los campos obligatorios. Su solicitud sigue aquí.",
+ "Submitting your review…": "Enviando su reseña…",
+ "Please correct the marked fields and try again.": "Corrija los campos marcados e inténtelo de nuevo.",
+ "Close project viewer": "Cerrar el visor de proyectos",
+ "Previous project": "Proyecto anterior",
+ "Next project": "Proyecto siguiente",
+ "Sources and verification": "Fuentes y verificación",
  "Book your free estimate": "Reserve su presupuesto gratis",
  "Takes about a minute. Pick how you want to meet, choose a time that works, and get a calendar invite with reminders.": "Toma un minuto. Elija cómo reunirse, escoja una hora y reciba una invitación de calendario con recordatorios.",
  "1. How would you like to talk?": "1. ¿Cómo le gustaría hablar?",

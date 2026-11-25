@@ -3,5 +3,24 @@
   "url": "https://budgetbathsolutions.com",
   "phone": "",
   "email": "",
-  "hours": "Mon-Fri 8am-6pm"
+  "hours": "Mon-Fri 8am-6pm",
+  "socialImage": "/og-image.png",
+  "pageMeta": {
+    "/": {
+      "modified": "2026-11-25",
+      "socialImage": "/og-image.png"
+    },
+    "/homeowner-help/bathroom-remodel-cost-2026/": {
+      "modified": "2026-11-25",
+      "socialImage": "/og-image.png"
+    },
+    "/homeowner-help/bathroom-remodel-home-value/": {
+      "modified": "2026-11-25",
+      "socialImage": "/og-image.png"
+    },
+    "/homeowner-help/bathroom-design-trends-2026/": {
+      "modified": "2026-11-25",
+      "socialImage": "/og-image.png"
+    }
+  }
 }

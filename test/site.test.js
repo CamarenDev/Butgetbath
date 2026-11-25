@@ -351,6 +351,45 @@ test('landmarks, image hints and breadcrumbs are present', async () => {
   assert.match(guide, /fetchpriority="high"/);
 });
 
+test('public UX markup exposes accessible states, controls and retry behavior', async () => {
+  const gallery = await (await fetch(base + '/gallery/')).text();
+  assert.match(gallery, /data-portfolio="projects" aria-live="polite" aria-busy="true"/);
+  assert.match(gallery, /data-portfolio="reviews" aria-live="polite" aria-busy="true"/);
+  assert.match(gallery, /Loading project photos/);
+  assert.match(gallery, /aria-label="Close project viewer"/);
+  assert.match(gallery, /aria-label="Previous project"/);
+  assert.match(gallery, /aria-label="Next project"/);
+  assert.match(gallery, /data-review-form novalidate/);
+  const form = await (await fetch(base + '/contact/')).text();
+  assert.match(form, /<label for="name"/);
+  assert.match(form, /aria-live="polite"/);
+  const source = fs.readFileSync(path.join(__dirname, '../assets/enhance.js'), 'utf8');
+  assert.match(source, /first|bad\[0\]\.focus\(\)/);
+  assert.match(source, /coarse\.matches/);
+  assert.match(source, /saveData/);
+  assert.match(source, /IntersectionObserver/);
+});
+
+test('metadata uses configured page dates and verified article citations', async () => {
+  const articlePath = '/homeowner-help/bathroom-remodel-cost-2026/';
+  const article = await (await fetch(base + articlePath)).text();
+  assert.match(article, new RegExp(`<link rel="canonical" href="https://budgetbathsolutions\\.com${articlePath}">`));
+  assert.match(article, /property="article:modified_time" content="2026-11-25"/);
+  assert.match(article, /property="og:image" content="https:\/\/budgetbathsolutions\.com\/og-image\.png"/);
+  assert.match(article, /Sources and verification/);
+  assert.match(article, /datetime="2026-11-25"/);
+  assert.match(article, /https:\/\/www\.homedepot\.com\/services\/c\/cost-bathroom-remodel/);
+  const articleLd = [...article.matchAll(/<script type="application\/ld\+json">([^]*?)<\/script>/g)]
+    .map(m => JSON.parse(m[1])).find(x => x['@type'] === 'Article');
+  assert.strictEqual(articleLd.dateModified, '2026-11-25');
+  assert.ok(articleLd.citation.every(url => /^https:\/\//.test(url)));
+  const service = await (await fetch(base + '/services/tile-installation/')).text();
+  assert.doesNotMatch(service, /property="article:modified_time"/);
+  assert.match(service, /meta name="robots" content="index, follow/);
+  const privatePage = await (await fetch(base + '/account/')).text();
+  assert.match(privatePage, /meta name="robots" content="noindex, follow"/);
+});
+
 test('SEO audit: unique titles, one h1, valid JSON-LD, town and cost pages, llms.txt', async () => {
   const sitemap = await (await fetch(base + '/sitemap.xml')).text();
   const urls = [...sitemap.matchAll(/<loc>https:\/\/budgetbathsolutions\.com([^<]+)<\/loc>/g)].map(m => m[1]);
