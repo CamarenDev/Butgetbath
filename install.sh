@@ -22,7 +22,7 @@ PORT=3000
 NODE_MAJOR=24
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DOMAIN="" ADMIN_EMAIL="" NOTIFY_EMAIL="" PHONE="" RESEND_KEY="" LE_EMAIL=""
+DOMAIN="" ADMIN_EMAIL="" DEV_EMAIL="" NOTIFY_EMAIL="" PHONE="" RESEND_KEY="" LE_EMAIL=""
 ASSUME_YES=0 WITH_NGINX=1 WITH_SSL=1 WITH_FIREWALL=1 RUN_TESTS=0 UNINSTALL=0
 
 if [ -t 1 ]; then G=$'\e[32m' R=$'\e[31m' Y=$'\e[33m' B=$'\e[1m' N=$'\e[0m'; else G= R= Y= B= N=; fi
@@ -37,7 +37,8 @@ usage() {
   cat <<EOF
 Usage: sudo ./install.sh [options]
   --domain NAME          public domain (example.com); enables nginx virtual host and HTTPS
-  --admin-email EMAIL    account allowed into the admin portal (register it on the site afterwards)
+  --admin-email EMAIL    admin account, created with a temporary password (default admin@DOMAIN)
+  --dev-email EMAIL      developer account, also allowed into the admin portal (default dev@DOMAIN)
   --notify-email EMAIL   where leads, bookings and alerts are sent
   --phone NUMBER         business phone shown on the site and in emails
   --resend-key KEY       Resend API key for sending email
@@ -57,6 +58,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --domain) DOMAIN="${2:-}"; shift 2 ;;
     --admin-email) ADMIN_EMAIL="${2:-}"; shift 2 ;;
+    --dev-email) DEV_EMAIL="${2:-}"; shift 2 ;;
     --notify-email) NOTIFY_EMAIL="${2:-}"; shift 2 ;;
     --phone) PHONE="${2:-}"; shift 2 ;;
     --resend-key) RESEND_KEY="${2:-}"; shift 2 ;;
@@ -111,12 +113,19 @@ avail_mb=$(df -Pm /opt | awk 'NR==2{print $4}')
 (echo > "/dev/tcp/deb.debian.org/443") 2>/dev/null || (echo > "/dev/tcp/registry.npmjs.org/443") 2>/dev/null || die "No internet access. The installer needs to download packages."
 ok "Internet reachable"
 
+get_env_early() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}$/\1/p" "$ENV_FILE" | head -1 || true; }
+
 # ---------------------------------------------------------------- questions
 if [ "$ASSUME_YES" -eq 0 ] && [ -t 0 ]; then
   printf '\n%sA few questions (press Enter to skip any of them; you can edit %s later)%s\n' "$B" "$ENV_FILE" "$N"
 fi
 ask DOMAIN "Website domain, e.g. budgetbathsolutions.com (blank = use the server IP, no HTTPS)"
-ask ADMIN_EMAIL "Admin email (the account that may open the admin portal)"
+ask ADMIN_EMAIL "Admin email (blank = admin@your-domain)"
+ask DEV_EMAIL "Developer email (blank = dev@your-domain)"
+MAIL_DOMAIN="${DOMAIN#www.}"; MAIL_DOMAIN="${MAIL_DOMAIN:-budgetbath.local}"
+[ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="$(get_env_early ADMIN_EMAILS | cut -d, -f1)"
+[ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="admin@$MAIL_DOMAIN"
+[ -z "$DEV_EMAIL" ] && DEV_EMAIL="dev@$MAIL_DOMAIN"
 ask NOTIFY_EMAIL "Email for new leads, bookings and alerts" "$ADMIN_EMAIL"
 ask PHONE "Business phone number shown on the site"
 ask RESEND_KEY "Resend API key for sending email (blank = emails are only logged)"
@@ -124,7 +133,7 @@ DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN%%/*}"
 [ -z "$DOMAIN" ] && WITH_SSL=0
 [ -z "$LE_EMAIL" ] && LE_EMAIL="$ADMIN_EMAIL"
 [[ -z "$DOMAIN" || "$DOMAIN" =~ ^[A-Za-z0-9.-]+$ ]] || die "That domain name has invalid characters."
-for e in "$ADMIN_EMAIL" "$NOTIFY_EMAIL" "$LE_EMAIL"; do
+for e in "$ADMIN_EMAIL" "$DEV_EMAIL" "$NOTIFY_EMAIL" "$LE_EMAIL"; do
   [[ -z "$e" || "$e" =~ ^[^[:space:],\"\'\\]+@[^[:space:],\"\'\\]+\.[^[:space:],\"\'\\]+$ ]] || die "Invalid email address: $e"
 done
 for v in "$PHONE" "$RESEND_KEY"; do [[ "$v" != *[\"\\\$\`]* ]] || die "Phone and API key cannot contain quotes, backslashes, \$ or backticks."; done
@@ -217,7 +226,7 @@ fi
 set_env PORT "$PORT"
 set_env DATA_DIR "$DATA_DIR"
 set_env SITE_URL "$SITE_URL"
-set_env ADMIN_EMAILS "$ADMIN_EMAIL"
+set_env ADMIN_EMAILS "$ADMIN_EMAIL,$DEV_EMAIL"
 set_env NOTIFY_EMAIL "$NOTIFY_EMAIL"
 set_env BUSINESS_PHONE "$PHONE"
 set_env RESEND_API_KEY "$RESEND_KEY"
@@ -239,6 +248,24 @@ runas() { runuser -u "$APP_USER" -- env -i HOME="$DATA_DIR" PATH="$PATH" bash -c
 runas "node build.js" | tail -2
 [ -s "$APP_DIR/dist/index.html" ] || die "The build did not produce dist/index.html."
 ok "Site built"
+
+# ---------------------------------------------------------------- accounts
+step "Creating the admin and developer accounts"
+CRED_FILE=/root/budgetbath-credentials.txt
+ACCOUNT_OUT="$(runas "node scripts/create-accounts.js --data-dir '$DATA_DIR' --admin-email '$ADMIN_EMAIL' --dev-email '$DEV_EMAIL'")" || die "Could not create the admin and developer accounts."
+NEW_ACCOUNTS=""
+while IFS=$'\t' read -r state role email password; do
+  case "$state" in
+    CREATED) ok "Created $role account $email"; NEW_ACCOUNTS+="$role: $email    temporary password: $password"$'\n' ;;
+    EXISTS) ok "The $role account $email already exists (password unchanged)" ;;
+  esac
+done <<< "$ACCOUNT_OUT"
+if [ -n "$NEW_ACCOUNTS" ]; then
+  umask 077
+  { printf 'Budget Bath Solutions first-login credentials.\nSign in at the site, then you are asked to choose a new password. Delete this file afterwards.\n\n'; printf '%s' "$NEW_ACCOUNTS"; } > "$CRED_FILE"
+  umask 022
+  ok "Temporary passwords saved to $CRED_FILE (root only)"
+fi
 
 # ---------------------------------------------------------------- service
 step "Starting the service"
@@ -396,11 +423,16 @@ if [ "$FAILS" -gt 0 ]; then
   exit 1
 fi
 printf '%s✔ Installed and verified. Your website is live at %s%s\n' "$G$B" "$SITE_URL" "$N"
+if [ -n "$NEW_ACCOUNTS" ]; then
+  printf '\n%sSign-in accounts (temporary passwords; you must change them at first sign-in)%s\n' "$B" "$N"
+  printf '%s' "$NEW_ACCOUNTS" | sed 's/^/  /'
+  echo "  Also saved to $CRED_FILE"
+fi
 [ "$WARNINGS" -gt 0 ] && printf '%s%s item(s) need your attention (see the "!" lines above).%s\n' "$Y" "$WARNINGS" "$N"
 cat <<EOF
 
 Next steps
-  1. Open $SITE_URL/account/register/ and create an account with ${ADMIN_EMAIL:-your admin email}, verify it, then open $SITE_URL/admin/.
+  1. Sign in at $SITE_URL/account/login/ with the admin or developer account, choose a new password when asked, then open $SITE_URL/admin/.
   2. In Admin > Bookings > Availability set your real business hours.
   3. Edit settings any time: nano $ENV_FILE  then  systemctl restart $SERVICE
 

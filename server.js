@@ -146,9 +146,22 @@ function createServer({
     res.end(req.method === 'HEAD' ? undefined : body);
   }
 
+  function reportServerError(req, error, kind) {
+    console.error('Request failed:', error);
+    req.errorLogged = true;
+    let user = null; try { user = api.currentUser(req); } catch { /* session lookup failed too */ }
+    return api.errors.record({ source: 'server', kind, error, url: req.url, method: req.method, status: 500, user, ip: api.clientIp(req), userAgent: req.headers['user-agent'] || '', context: { referer: req.headers.referer || '', host: req.headers.host || '', node: process.version, uptimeSec: Math.round(process.uptime()) } });
+  }
+
   const server = http.createServer(async (req, res) => {
     for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
     if (process.env.LOG_REQUESTS === '1') res.on('finish', () => console.log(`${new Date().toISOString()} ${req.method} ${req.url.split('?')[0]} ${res.statusCode}`));
+    // Handlers that answer 5xx themselves (without throwing) are still recorded.
+    res.on('finish', () => {
+      if (res.statusCode < 500 || req.errorLogged) return;
+      const url = req.url.split('?')[0];
+      api.errors.record({ source: 'server', kind: 'http_5xx', message: `${req.method} ${url} answered ${res.statusCode}`, url, method: req.method, status: res.statusCode, ip: api.clientIp(req), userAgent: req.headers['user-agent'] || '' });
+    });
     try {
       let pathname;
       try { pathname = decodeURIComponent(new URL(req.url, 'http://localhost').pathname); } catch { return sendJson(res, 400, { error: 'Bad request.' }); }
@@ -171,14 +184,20 @@ function createServer({
         }
         return await serveFile(req, res, resolved);
       } catch (error) {
-        if (error.code !== 'ENOENT' && error.code !== 'ENOTDIR') throw error;
+        if (!['ENOENT', 'ENOTDIR', 'ENAMETOOLONG'].includes(error.code)) throw error;
         return await serveFile(req, res, path.join(distDir, '404.html'), 404);
       }
     } catch (error) {
-      console.error('Request failed:', error);
-      if (!res.headersSent) sendJson(res, 500, { error: 'Something went wrong. Please try again later.' });
+      const id = reportServerError(req, error, 'request_failed');
+      try {
+        if (!res.headersSent) sendJson(res, 500, { error: 'Something went wrong. Please try again later.', reference: id || undefined });
+        else if (!res.writableEnded) res.end();
+      } catch { res.destroy(); }
     }
   });
+  server.on('clientError', (error, socket) => { try { if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n'); else socket.destroy(); } catch { /* socket already gone */ } });
+  server.on('error', error => { api.errors.record({ source: 'server', kind: 'server_error', error }); console.error('Server error:', error); });
+  server.errors = api.errors;
   server.tracking = api.tracking;
   server.company = api.company;
   server.zoho = api.zoho;
@@ -196,6 +215,18 @@ function createServer({
 if (require.main === module) {
   const port = Number(process.env.PORT || 3000);
   const server = createServer().listen(port, process.env.HOST || undefined, () => console.log(`Budget Bath Solutions running on http://localhost:${port}`));
+  // A stray error anywhere (timers, background jobs, unawaited promises) is logged instead of taking the site down.
+  let recent = 0;
+  const survive = kind => error => {
+    server.errors.record({ source: 'process', kind, error: error instanceof Error ? error : new Error(String(error)), context: { node: process.version, uptimeSec: Math.round(process.uptime()) } });
+    console.error(`${kind}:`, error);
+    // A burst of fatal errors means the process is not healthy; exit and let systemd restart it.
+    if (++recent > 50) process.exit(1);
+  };
+  setInterval(() => { recent = 0; }, 60000).unref();
+  process.on('uncaughtException', survive('uncaught_exception'));
+  process.on('unhandledRejection', survive('unhandled_rejection'));
+  process.on('warning', w => { if (w.name !== 'ExperimentalWarning') server.errors.record({ source: 'process', kind: 'node_warning', level: 'warn', error: w }); });
   const stopSeo = server.seoSync.start();
   server.on('close', stopSeo);
   for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { server.close(() => process.exit(0)); server.closeIdleConnections(); setTimeout(() => process.exit(1), 10000).unref(); });

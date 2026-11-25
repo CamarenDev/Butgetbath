@@ -15,7 +15,7 @@ const services = [
     title: 'Tile Installation for Bathrooms & Showers in Northern Illinois',
     desc: 'Professional tile installation for bathroom floors, showers and walls in Kane, Kendall, DuPage and DeKalb counties, Illinois.',
     intro: 'Tile is where a bathroom is won or lost. Flat substrates, straight lines, tight grout joints and properly prepared wet areas are what separate a tile job that lasts from one that fails.',
-    points: ['Shower walls, floors and niches', 'Tub surrounds and accent walls', 'Large-format, mosaic and patterned tile', 'Backsplashes and entry floors'],
+    points: ['Shower walls, floors and niches', 'Tub surrounds and accent walls', 'Large-format, mosaic, stone and patterned tile', 'Kitchen backsplashes, floors and entryways', 'Waterproofing, regrouting and tile repair'],
     faqs: [['Can you install tile I bought myself?', 'Often, yes. Call us before you buy so we can talk about suitability and quantities.'], ['Do you do tile repair?', 'Yes. Cracked, loose and failing tile is worth looking at early, especially in wet areas.'], ['What tile is best for a shower?', 'It depends on the layout and how you use the space. We can talk options during your estimate.']]
   },
   {
@@ -29,12 +29,12 @@ const services = [
   },
   {
     slug: 'basement-and-other-remodeling', name: 'Other Home Remodeling', icon: 'bi-hammer',
-    short: 'Kitchens, basements, flooring and more. Ask us about your project.',
+    short: 'Drywall, trim, carpentry, flooring, kitchens, cabinets and all tile work.',
     title: 'Home Remodeling & Repairs in Kane, Kendall, DuPage & DeKalb Counties',
-    desc: 'Beyond bathrooms: flooring, kitchens, basements and general remodeling and repairs in northern Illinois. Contact Budget Bath Solutions.',
+    desc: 'Beyond bathrooms: drywall, trim, carpentry, flooring, kitchens, cabinets, tile work and general repairs in northern Illinois. Contact Budget Bath Solutions.',
     intro: 'Bathrooms and tile are our specialty, but we also take on other home projects. Tell us what you are planning and we will let you know honestly whether we are the right fit.',
-    points: ['Flooring and trim', 'Kitchen and backsplash updates', 'Basement finishing and refreshes', 'General repairs and punch-list work'],
-    faqs: [['What other projects do you do?', 'It varies by season and schedule. Send us the details and we will tell you what we can take on.']]
+    points: ['Drywall hanging, patching and finishing', 'Trim, molding and carpentry', 'Flooring: LVP, laminate, hardwood and carpet', 'Kitchens and cabinet installation', 'All tile work: floors, walls, backsplashes and repairs', 'Basement refreshes and punch-list repairs'],
+    faqs: [['What other projects do you do?', 'Drywall, trim, carpentry, flooring, kitchens, cabinets and every kind of tile work. Send us the details and we will confirm scope and schedule.']]
   }
 ];
 

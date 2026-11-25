@@ -112,7 +112,7 @@ a.card:hover{transform:translateY(-6px);box-shadow:0 20px 40px rgba(18,48,47,.14
 .review-card footer{display:flex;align-items:center;gap:.8rem}
 .review-card small{display:block;color:#66726f}
 .avatar{display:grid;place-items:center;width:2.8rem;height:2.8rem;border-radius:50%;background:var(--grad);color:#fff;font-weight:700}
-.stars{color:#f5a623;letter-spacing:.1em;font-size:1.1rem}
+.stars{color:#b45309;letter-spacing:.1em;font-size:1.1rem}
 .lightbox{border:0;padding:0;background:transparent;max-width:min(92vw,60rem);width:100%;color:#fff;overflow:visible}
 .lightbox::backdrop{background:rgba(8,14,14,.85);backdrop-filter:blur(6px)}
 .lb-stage img,.lb-stage video{width:100%;max-height:78vh;object-fit:contain;border-radius:1rem;display:block}
