@@ -70,11 +70,12 @@ function bookingWidget(mode = 'book') {
   const attrs = `data-booking="${mode}" data-services="${esc(JSON.stringify(services.map(s => s.name)))}"`;
   if (mode === 'manage') return `<div class="card card-body p-4 shadow-lg booking" ${attrs}><p>Loading your appointment...</p><noscript><p>Please turn on JavaScript to manage your appointment, or ${callUs()}.</p></noscript></div>`;
   return `<form id="book" class="lead-form card card-body p-4 shadow-lg" action="/api/submissions" method="post" novalidate data-form>
-<p class="eyebrow dark mb-1">Free &middot; No obligation</p><h2 class="h3 mb-2">Book your free estimate</h2><p class="text-muted">Leave your name and phone number and we will call you to set up your free estimate.</p>
+<p class="eyebrow dark mb-1">Free &middot; No obligation</p><h2 class="h3 mb-2">Book your free estimate</h2><p class="text-muted">Leave your name, phone number and email and we will call you to set up your free estimate.</p>
 <input type="hidden" name="type" value="callback">
 <div class="visually-hidden" aria-hidden="true"><label for="callback-website">Leave this field empty</label><input id="callback-website" name="website" tabindex="-1" autocomplete="off"></div>
 <div class="row g-3">
 ${field('name', 'Full name', { required: true, autocomplete: 'name', col: 'col-12' })}${field('phone', 'Phone number', { type: 'tel', required: true, autocomplete: 'tel', col: 'col-12', attrs: ' minlength="7"' })}
+${field('email', 'Email', { type: 'email', required: true, autocomplete: 'email', col: 'col-12', hint: 'We will email you a quick introduction before we call.' })}
 <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="consent" name="consent" required><label class="form-check-label" for="consent">I agree to be contacted about this request and have read the <a href="/privacy/" target="_blank" rel="noopener noreferrer">Privacy Policy</a>.</label><div class="invalid-feedback">Please agree so we can respond.</div></div></div>
 <div class="col-12"><button class="btn btn-brass btn-lg w-100" type="submit">Call Me for My Free Estimate</button><div class="form-status mt-3" role="status" aria-live="polite"></div></div>
 </div></form>`;

@@ -99,7 +99,7 @@ function createServer(options = {}) {
     }
     const callback = clean.type === 'callback';
     if (callback) { clean.location ||= 'Not provided'; clean.interest ||= 'Free estimate callback'; }
-    const validContact = callback ? clean.phone.replace(/\D/g, '').length >= 7 : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email);
+    const validContact = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email) && (!callback || clean.phone.replace(/\D/g, '').length >= 7);
     if (!['project', 'work', 'question', 'callback'].includes(clean.type) || !clean.name || !clean.location || !clean.interest || !validContact || input.consent !== true) {
       return sendJson(res, 400, { error: 'Please complete the required fields and agree to the privacy policy.' });
     }
@@ -183,6 +183,18 @@ function createServer(options = {}) {
     }
   }
 
+  // Retries lead emails that failed, and ones skipped while email was not configured, so no enquiry is silently lost.
+  async function retryLeadNotifications() {
+    try {
+      if (mailer.capability?.().state === 'available') db.prepare("UPDATE notification_jobs SET status = 'pending', sent_messages = '[]' WHERE status = 'skipped'").run();
+      const jobs = db.prepare("SELECT idempotency_key FROM notification_jobs WHERE status IN ('pending', 'failed') OR (status = 'processing' AND updated_at < ?) LIMIT 50").all(new Date(Date.now() - 2 * 60 * 1000).toISOString());
+      for (const job of jobs) await processLeadNotifications(job.idempotency_key);
+    } catch (error) { console.error('Lead notification retry failed:', error.message); }
+  }
+  const retryTimer = options.retryLeadEmails === false ? null : setInterval(retryLeadNotifications, 5 * 60 * 1000);
+  retryTimer?.unref();
+  if (retryTimer) setTimeout(retryLeadNotifications, 5000).unref();
+
   async function serveFile(req, res, file, status = 200) {
     const [content, stat] = await Promise.all([fs.readFile(file), fs.stat(file)]);
     const ext = path.extname(file);
@@ -260,7 +272,7 @@ function createServer(options = {}) {
   const stopAlerts = api.jobAlerts.start();
   const stopHolidays = api.company.start();
   const stopZoho = api.zoho.start();
-  server.on('close', () => { stopMonitor(); stopAlerts(); stopHolidays(); stopZoho(); db.close(); });
+  server.on('close', () => { clearInterval(retryTimer); stopMonitor(); stopAlerts(); stopHolidays(); stopZoho(); db.close(); });
   if (siteUrl.startsWith('https://')) headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
   server.seoSync = api.seoSync;
   server.headersTimeout = 15000; server.requestTimeout = 120000; server.keepAliveTimeout = 5000; server.maxHeadersCount = 60;
