@@ -105,3 +105,18 @@ test('failed notification delivery remains pending and retries safely', async ()
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test('free-estimate callback requires an email, alerts the admin and sends the customer an introduction', async () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-callback-'));
+  const sent = [];
+  const server = createServer({ dataDir, siteUrl: 'http://localhost', adminEmails: ['admin@example.com'], notifyEmail: 'admin@example.com', mailer: async m => { sent.push(m); }, gcal: { enabled: false, sync: async () => null, remove: async () => null }, receiver: null });
+  await new Promise(resolve => server.listen(0, resolve));
+  const post = body => fetch(`http://localhost:${server.address().port}/api/submissions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  try {
+    const lead = { type: 'callback', name: 'Cal Back', phone: '555-010-0100', consent: true };
+    assert.equal((await post(lead)).status, 400);
+    assert.equal((await post({ ...lead, email: 'cal@example.com' })).status, 201);
+    assert.deepEqual(sent.map(m => m.to).sort(), ['admin@example.com', 'cal@example.com']);
+    assert.match(sent.find(m => m.to === 'cal@example.com').text, /call you/);
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
