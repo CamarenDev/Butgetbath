@@ -25,7 +25,11 @@ test('holiday dates are computed correctly', () => {
 test('company stats, visitor heatmap and automatic holiday emails', async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-co-'));
   const sent = [];
-  const server = createServer({ dataDir, siteUrl: 'http://localhost', adminEmails: ['admin@example.com'], notifyEmail: '', mailer: async m => { sent.push(m); }, gcal: { enabled: false, sync: async () => null, remove: async () => null }, receiver: null });
+  let outboundAvailable = true;
+  const server = createServer({ dataDir, siteUrl: 'http://localhost', adminEmails: ['admin@example.com'], notifyEmail: '', mailer: async m => {
+    if (!outboundAvailable) return { ok: false, skipped: true, error: 'Provider disabled', capability: { state: 'disabled', reason: 'Provider disabled', retryable: false } };
+    sent.push(m);
+  }, gcal: { enabled: false, sync: async () => null, remove: async () => null }, receiver: null });
   await new Promise(resolve => server.listen(0, resolve));
   const base = `http://localhost:${server.address().port}`;
   const jar = {};
@@ -62,6 +66,8 @@ test('company stats, visitor heatmap and automatic holiday emails', async () => 
     const hol = (await call('admin', 'GET', '/api/admin/holidays')).data;
     assert.equal(hol.audience.eligible, 2);
     assert.ok(hol.holidays.length >= 10);
+    assert.equal(hol.metadata.verified, false);
+    assert.equal(hol.holidays[0].defaultsMetadata.source, 'bundled application defaults');
     const bf = hol.holidays.find(h => h.key === 'black-friday');
     assert.equal(bf.sale, true);
     assert.equal((await call('admin', 'POST', '/api/admin/holidays/black-friday', { enabled: true, sale: true, pct: 0, lead: 3, tail: 3, code: 'BF' })).res.status, 400);
@@ -92,6 +98,21 @@ test('company stats, visitor heatmap and automatic holiday emails', async () => 
     assert.equal((await fetch(link)).status, 200);
     assert.equal((await fetch(link, { method: 'POST' })).status, 200);
     assert.equal((await call('admin', 'GET', '/api/admin/holidays')).data.audience.eligible, 1);
+
+    outboundAvailable = false;
+    const disabled = await call('admin', 'POST', '/api/admin/holidays/new-years/send-now', {});
+    assert.equal(disabled.res.status, 202);
+    for (let i = 0; i < 50; i++) {
+      const c = (await call('admin', 'GET', '/api/admin/holidays')).data.campaigns.find(x => x.id === disabled.data.id);
+      if (c?.status === 'done') break;
+      await new Promise(r => setTimeout(r, 10));
+    }
+    const failedCampaign = (await call('admin', 'GET', '/api/admin/holidays')).data.campaigns.find(x => x.id === disabled.data.id);
+    assert.equal(failedCampaign.sent, 0);
+    assert.equal(failedCampaign.failed, 1);
+    const testEmail = await call('admin', 'POST', '/api/admin/holidays/new-years/test', {});
+    assert.equal(testEmail.res.status, 503);
+    assert.equal(testEmail.data.ok, false);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
