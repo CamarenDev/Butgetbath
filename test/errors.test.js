@@ -17,7 +17,7 @@ test('error log: records browser and server errors, hides secrets and is admin-o
   const base = `http://localhost:${server.address().port}`;
   const post = (url, body, cookie) => fetch(base + url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie && { Cookie: cookie }) }, body: JSON.stringify(body) });
   try {
-    const report = await post('/api/client-error', { kind: 'js_error', message: 'x is not a function', stack: 'TypeError\n    at foo (app.js:1:1)', url: 'http://localhost/reset?token=abc123secret', context: { line: 4, trail: ['click: a'] } });
+    const report = await post('/api/client-error', { kind: 'js_error', message: '{"password":"message-secret"} x is not a function Authorization: Bearer header-secret', stack: 'TypeError: token=stack-secret\n    at foo (app.js:1:1)', url: 'http://localhost/reset?token=abc123secret', context: { line: 4, token: 'context-secret', headers: { authorization: 'Bearer hidden-auth', cookie: 'session=hidden-cookie' }, trail: ['click: a'] } });
     assert.equal(report.status, 202);
     assert.equal((await post('/api/client-error', { nope: true })).status, 400);
     const id = server.errors.record({ source: 'server', kind: 'request_failed', error: new Error('boom'), url: '/api/x?password=hunter2', method: 'POST', status: 500 });
@@ -30,9 +30,13 @@ test('error log: records browser and server errors, hides secrets and is admin-o
     const data = await (await fetch(base + '/api/admin/errors?days=1', { headers: { Cookie: cookie } })).json();
     assert.equal(data.errors.length, 2);
     const text = JSON.stringify(data);
-    assert.ok(!text.includes('abc123secret') && !text.includes('hunter2'));
+    assert.ok(!/abc123secret|hunter2|message-secret|header-secret|stack-secret|context-secret|hidden-auth|hidden-cookie/.test(text));
     const browser = data.errors.find(e => e.source === 'browser');
     assert.equal(browser.context.line, '4');
+    assert.deepEqual(browser.context, { line: '4' });
+    assert.equal(browser.url, '/reset?[redacted]');
+    assert.equal(browser.userAgent, '');
+    assert.equal(browser.userEmail, null);
     assert.match(data.errors.find(e => e.source === 'server').stack, /boom/);
     assert.equal(data.summary.open, 2);
     assert.equal((await post(`/api/admin/errors/${id}/resolve`, {}, cookie)).status, 200);
