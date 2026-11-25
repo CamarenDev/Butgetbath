@@ -327,7 +327,9 @@ test('appointments: staff schedule, customer gets confirmation with .ics, calend
     assert.deepStrictEqual(mails.map(m => m.to).sort(), ['casey@example.test', 'owner@example.test']);
     assert.match(Buffer.from(mails.find(m => m.to === 'casey@example.test').attachments[0].content, 'base64').toString(), /METHOD:CANCEL/);
     assert.deepStrictEqual(pushed.at(-1), ['remove', 'g1']);
-    assert.strictEqual((await call(`/api/appointments/${appt.id}/cancel`, {}, cust)).status, 400);
+    const repeatedCancel = await call(`/api/appointments/${appt.id}/cancel`, {}, cust);
+    assert.strictEqual(repeatedCancel.status, 200, await repeatedCancel.clone().text());
+    assert.strictEqual((await repeatedCancel.json()).duplicate, true);
   } finally { srv.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
