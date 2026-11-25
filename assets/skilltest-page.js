@@ -14,31 +14,45 @@
     n.append(...kids.flat().filter(x => x != null));
     return n;
   };
+  const pending = new Map();
   const api = async (path, body) => {
+    const key = `${path}:${body ? JSON.stringify(body) : ''}`;
+    if (pending.has(key)) return pending.get(key);
+    const run = request(path, body);
+    pending.set(key, run);
+    run.finally(() => pending.delete(key)).catch(() => {});
+    return run;
+  };
+  const request = async (path, body) => {
     const r = await fetch(path, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : undefined);
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || T.err);
     return d;
   };
   const notice = (msg, kind = 'danger') => root.replaceChildren(el('div', { class: `alert alert-${kind}`, text: msg }));
-  let timer = null;
+  let timer = null, submitting = false;
 
   async function menu() {
     clearInterval(timer);
     const d = await api(`/api/applications/test?token=${encodeURIComponent(token)}&lang=${lang}`);
     root.replaceChildren(el('p', { text: `${T.hello} ${d.name}. ${T.pick}` }),
-      el('div', { class: 'list-group' }, d.trades.map(t => el('div', { class: 'list-group-item d-flex align-items-center gap-2' },
+      el('div', { class: 'list-group' }, d.trades.map(t => el('div', { class: 'list-group-item d-flex flex-wrap align-items-center gap-2' },
         el('strong', { text: t.trade }), el('span', { class: 'ms-auto' }, t.status === 'done' ? el('span', { class: 'badge text-bg-success', text: T.done }) : el('button', { type: 'button', class: 'btn btn-brass btn-sm', text: t.status === 'started' ? T.resume : T.start, onclick: () => run(t.trade).catch(e => notice(e.message)) })))))); 
   }
 
   async function run(trade) {
     const d = await api(`/api/applications/test?token=${encodeURIComponent(token)}&trade=${encodeURIComponent(trade)}&lang=${lang}`);
+    submitting = false;
     const answers = {}, timeLeft = el('strong'), count = el('span', { class: 'text-muted' });
     let left = d.secondsLeft;
     const tick = () => { const m = Math.floor(left / 60), s = left % 60; timeLeft.textContent = `${m}:${String(s).padStart(2, '0')}`; count.textContent = `${Object.keys(answers).length}/${d.questions.length}`; };
     const submit = async () => {
+      if (submitting) return;
+      submitting = true;
       clearInterval(timer);
-      try { const r = await api('/api/applications/test', { token, trade, lang, answers }); finish(r); } catch (e) { notice(e.message); }
+      const button = form.querySelector('button[type=submit]');
+      button.disabled = true; button.setAttribute('aria-busy', 'true'); button.textContent = T.submit === 'Submit answers' ? 'Submitting…' : 'Enviando…';
+      try { const r = await api('/api/applications/test', { token, trade, lang, answers, attemptId: d.attemptId }); finish(r); } catch (e) { notice(e.message); }
     };
     const form = el('form', { novalidate: true, onsubmit: ev => { ev.preventDefault(); if (Object.keys(answers).length < d.questions.length && !confirm(T.confirm)) return; submit(); } },
       d.questions.map((x, n) => el('fieldset', { class: 'mb-4' }, el('legend', { class: 'h6', text: `${n + 1}. ${x.q}` }),

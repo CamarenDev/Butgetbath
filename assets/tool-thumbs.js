@@ -2,7 +2,7 @@
 (() => {
   let tools = null, pending = null;
   const key = name => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 90);
-  const load = () => pending || (pending = fetch('/api/tools/library').then(r => r.ok ? r.json() : { tools: [] }).then(d => { tools = new Map(d.tools.filter(t => t.photo).map(t => [t.key, t])); }).catch(() => { tools = new Map(); pending = null; }));
+  const load = () => pending || (pending = fetch('/api/tools/library').then(r => { if (!r.ok) throw new Error('Tool library unavailable'); return r.json(); }).then(d => { tools = new Map(d.tools.filter(t => t.photo).map(t => [t.key, t])); }).catch(() => { tools ||= new Map(); }).finally(() => { pending = null; }));
   const thumb = name => {
     const t = tools && tools.get(key(name));
     if (!t) return null;
