@@ -62,3 +62,20 @@ td[data-heat="4"] { background: rgba(124, 92, 255, 0.8); color: #fff; }
 /* Tool photo library */
 .tool-photo { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; border: 1px solid #d7dcdc; background: #f4f1ea; }
 .tool-photo-empty { width: 96px; height: 96px; border-radius: 8px; border: 2px dashed #c4cbca; display: flex; align-items: center; justify-content: center; font-size: .75rem; color: #6b7775; text-align: center; padding: .25rem; flex: none; }
+
+.admin-skip-link{position:fixed;left:1rem;top:-4rem;z-index:1100;padding:.65rem 1rem;border-radius:0 0 .5rem .5rem;background:#fff;color:#0a1f44;font-weight:700;box-shadow:0 4px 16px rgba(15,23,42,.2)}
+.admin-skip-link:focus{top:0}
+.admin-main,.admin-view,.admin-view>*{min-width:0;max-width:100%}
+.admin-view .panel{overflow:hidden}
+.admin-view .table-wrap{max-width:100%;overscroll-behavior-inline:contain}
+.admin-view .table{margin-bottom:0}
+.admin-view .table th,.admin-view .table td{overflow-wrap:anywhere}
+.admin-view .form-control,.admin-view .form-select{min-width:0;max-width:100%}
+.admin-view .row>*{min-width:0}
+.admin-loading{display:flex;align-items:center;justify-content:center;gap:.65rem;min-height:12rem;color:#64748b}
+.admin-empty{padding:1rem;border:1px dashed #cbd5e1;border-radius:.75rem;background:#f8fafc;text-align:center}
+.admin-view [aria-busy="true"]{cursor:progress}
+.admin-view .alert[data-form-error]{max-width:100%;overflow-wrap:anywhere}
+.toast-container{max-width:min(28rem,calc(100vw - 1rem));z-index:1200}
+.toast-container .alert{overflow-wrap:anywhere}
+.toast-container .btn{min-height:2.25rem}

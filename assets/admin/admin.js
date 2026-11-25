@@ -9,22 +9,98 @@
   };
   const SVG = 'http://www.w3.org/2000/svg';
   const sv = (tag, attrs = {}, text) => { const n = document.createElementNS(SVG, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text != null) n.textContent = text; return n; };
+  let routeGeneration = 0, routeController = null, authGeneration = 0;
+  class RequestError extends Error {
+    constructor(message, status = 0, kind = 'unknown', cause) {
+      super(message);
+      this.name = 'RequestError';
+      this.status = status;
+      this.kind = kind;
+      if (cause) this.cause = cause;
+    }
+  }
+  const stale = () => new RequestError('This page changed before the request finished.', 0, 'stale');
+  const errorKind = status => status === 401 ? 'auth' : status === 403 ? 'forbidden' : status >= 500 ? 'server' : status === 400 || status === 409 || status === 422 ? 'validation' : 'request';
   const api = async (url, opts = {}) => {
-    const r = await fetch(url, opts);
+    const generation = routeGeneration, method = String(opts.method || 'GET').toUpperCase();
+    const request = { ...opts };
+    if (method === 'GET' && routeController && !request.signal) request.signal = routeController.signal;
+    let r;
+    try { r = await fetch(url, request); }
+    catch (e) {
+      if (generation !== routeGeneration || e.name === 'AbortError') throw stale();
+      throw new RequestError('You appear to be offline. Check your connection and try again.', 0, 'network', e);
+    }
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) { const e = new Error(d.error || 'Something went wrong.'); e.status = r.status; throw e; }
+    if (generation !== routeGeneration) throw stale();
+    if (!r.ok) throw new RequestError(d.error || (r.status >= 500 ? 'The server could not complete this request.' : 'The request could not be completed.'), r.status, errorKind(r.status));
     return d;
   };
   const send = (url, method, body) => api(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   const when = v => v ? new Date(v).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
   const view = $('#view');
   let toastBox;
-  const toast = (msg, kind = 'success') => {
-    if (!toastBox) { toastBox = el('div', { class: 'toast-container position-fixed bottom-0 end-0 p-3', role: 'status', 'aria-live': 'polite' }); document.body.append(toastBox); }
-    const t = el('div', { class: `alert alert-${kind} shadow mb-2`, text: msg });
-    toastBox.append(t); setTimeout(() => t.remove(), 3500);
+  const toast = (msg, kind = 'success', retry) => {
+    if (!toastBox) { toastBox = el('div', { class: 'toast-container position-fixed bottom-0 end-0 p-3', role: 'region', 'aria-label': 'Notifications', 'aria-live': 'polite' }); document.body.append(toastBox); }
+    const t = el('div', { class: `alert alert-${kind} shadow mb-2`, role: kind === 'danger' || kind === 'warning' ? 'alert' : 'status' }, el('span', { text: msg }));
+    if (retry) t.append(' ', btn('Retry', retry, 'btn-outline-dark mt-2'));
+    toastBox.append(t); setTimeout(() => t.remove(), retry ? 10000 : 3500);
   };
-  const guard = fn => async (...a) => { try { await fn(...a); } catch (e) { if (e.status === 401 || e.status === 403) return boot(); toast(e.message, 'danger'); } };
+  const describeError = e => {
+    if (e?.kind === 'stale') return '';
+    if (e?.status === 403) {
+      const reason = e.message && !['Admin access required.', 'Not allowed.'].includes(e.message) ? ` ${e.message}` : '';
+      return `You do not have permission to access this admin area.${reason} Ask an administrator to grant access if this is unexpected.`;
+    }
+    if (e?.kind === 'network') return e.message;
+    if (e?.status >= 500) return 'The server could not complete this request. Your changes may not have been saved. Try again.';
+    if (e?.kind === 'validation' || (e?.status >= 400 && e?.status < 500)) return e.message || 'Check the highlighted fields and try again.';
+    return e?.message || 'Something went wrong. Try again.';
+  };
+  const pending = new WeakSet();
+  const setPending = (control, value) => {
+    if (!control?.setAttribute) return;
+    control.disabled = value;
+    if (value) control.setAttribute('aria-busy', 'true');
+    else control.removeAttribute('aria-busy');
+  };
+  const showLogin = (message = '', options = {}) => {
+    routeController?.abort(); routeGeneration++;
+    $('#admin-app').hidden = true; $('#admin-login').hidden = false;
+    $('#login-heading').textContent = options.heading || 'Admin sign in';
+    $('#login-intro').textContent = options.intro || 'Staff accounts only.';
+    const status = $('#login-form .form-status');
+    status.textContent = message;
+    status.className = `form-status mt-3 ${message ? options.tone === 'warning' ? 'text-warning-emphasis' : 'text-danger' : ''}`;
+    $('#login-retry').hidden = !options.retry;
+  };
+  const showActionError = (control, error, retry) => {
+    if (error?.kind === 'stale') return;
+    if (error?.status === 401) { showLogin('Your session expired. Sign in again to continue.'); return; }
+    const message = describeError(error);
+    if (control?.closest) {
+      const panel = control.closest('.panel');
+      panel?.querySelector('[data-form-error]')?.remove();
+      if (error?.kind === 'validation' && panel) panel.append(el('div', { class: 'alert alert-warning mt-3 mb-0', role: 'alert', 'data-form-error': '', text: message }));
+    }
+    toast(message, error?.kind === 'validation' ? 'warning' : 'danger', error?.status === 403 ? null : retry);
+  };
+  const guard = fn => async (...a) => {
+    const control = a[0]?.currentTarget;
+    if (control && pending.has(control)) return;
+    if (control) { pending.add(control); setPending(control, true); }
+    try { await fn(...a); }
+    catch (e) { showActionError(control, e, () => guard(fn)(...a)); }
+    finally { if (control) { pending.delete(control); setPending(control, false); } }
+  };
+  const submitForm = async (form, fn, onError) => {
+    const control = form.querySelector('[type="submit"]');
+    if (control?.disabled || form.reportValidity && !form.reportValidity()) return;
+    setPending(control, true);
+    try { return await fn(); }
+    catch (e) { if (onError) onError(e); else showActionError(control, e, () => submitForm(form, fn, onError)); }
+    finally { setPending(control, false); }
+  };
   const input = (label, props = {}, tag = 'input') => {
     const id = 'f' + Math.random().toString(36).slice(2, 8);
     const ctl = el(tag, { class: tag === 'select' ? 'form-select' : 'form-control', id, ...props });
@@ -32,7 +108,7 @@
   };
   const panel = (title, ...kids) => el('section', { class: 'panel' }, title ? el('h2', { class: 'mb-3', text: title }) : null, ...kids);
   const tableOf = (heads, rows) => el('div', { class: 'table-wrap' }, el('table', { class: 'table align-middle mb-0' }, el('thead', {}, el('tr', {}, heads.map(h => el('th', { scope: 'col', text: h })))), el('tbody', {}, rows)));
-  const empty = text => el('p', { class: 'text-muted mb-0', text });
+  const empty = text => el('p', { class: 'admin-empty text-muted mb-0', role: 'status', text });
   const btn = (text, onclick, cls = 'btn-outline-secondary') => el('button', { type: 'button', class: `btn btn-sm ${cls}`, onclick: guard(onclick), text });
   const badge = (text, cls = 'secondary') => el('span', { class: `badge text-bg-${cls}`, text });
 
@@ -185,7 +261,7 @@
     const editThread = t => {
       const title = input('Title', {}), body = input('Body', { rows: '10', maxlength: '5000' }, 'textarea'), cat = catSel(t.category);
       title.ctl.value = t.title;
-      api(`/api/forum/threads/${t.id}`).then(d => { body.ctl.value = d.thread.body; });
+      api(`/api/forum/threads/${t.id}`).then(d => { body.ctl.value = d.thread.body; }).catch(e => showActionError(body.ctl, e, () => editThread(t)));
       view.replaceChildren(panel(`Edit: ${t.title}`, title.wrap, el('div', { class: 'mb-3' }, cat), body.wrap, el('div', { class: 'd-flex gap-2' },
         btn('Save', async () => { await send(`/api/admin/forum/threads/${t.id}`, 'POST', { title: title.ctl.value, body: body.ctl.value, category: cat.value }); toast('Saved'); forum(); }, 'btn-primary'), btn('Cancel', () => render()))));
     };
@@ -638,7 +714,7 @@
       badges.location = t.openAlerts;
     };
     await draw();
-    liveTimer = setInterval(() => { if (document.hidden) return; if (!location.hash.startsWith('#live')) { clearInterval(liveTimer); return; } draw().catch(() => {}); }, 20000);
+    liveTimer = setInterval(() => { if (document.hidden) return; if (!location.hash.startsWith('#live')) { clearInterval(liveTimer); return; } guard(draw)(); }, 20000);
     renderNav('live');
   };
 
@@ -677,7 +753,7 @@
       const m = await api(`/api/admin/onboarding/match?${q}`);
       results.replaceChildren(m.people.length ? tableOf(['Employee', 'Task level', 'Trade years', 'Ready for jobs'], m.people.map(p => el('tr', {}, el('td', {}, el('a', { href: `#employees/${p.id}`, text: p.name }), el('div', { class: 'small text-muted', text: p.roleTitle })), el('td', { text: p.level >= 0 ? m.levels[p.level] : '' }), el('td', { text: p.years ? String(p.years) : '' }), el('td', {}, sBadge(p.ready ? 'approved' : 'pending'))))) : empty('Nobody has a matching experience profile yet.'));
     };
-    task.ctl.addEventListener('change', run); trade.ctl.addEventListener('change', run);
+    task.ctl.addEventListener('change', guard(run)); trade.ctl.addEventListener('change', guard(run));
     const contract = input('Employment agreement text shown to new hires', { rows: 12, maxlength: 30000 }, 'textarea'); contract.ctl.value = cfg.contractText;
     const days = select('Default training length', [[1, '1 day'], [2, '2 days'], [3, '3 days']], cfg.defaultDays);
     const stageName = { forms: 'Forms', experience: 'Experience', training: 'Training', review: 'Ready for sign-off', complete: 'Signed off', legacy: '' };
@@ -693,7 +769,11 @@
 
   // ---------- Customer bookings (phone, video and in-home estimates booked online)
   const bookingsPage = async () => {
-    const [list, cfgData, feed] = await Promise.all([api('/api/admin/bookings'), api('/api/admin/bookings/config'), api('/api/calendar/info').catch(() => null)]);
+    const [list, cfgData, feed] = await Promise.all([
+      api('/api/admin/bookings'),
+      api('/api/admin/bookings/config'),
+      api('/api/calendar/info').catch(e => { showActionError(null, e, () => bookingsPage()); return null; })
+    ]);
     const C = cfgData.config, names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const kindName = { phone: 'Phone call', video: 'Video call', in_home: 'In-home estimate' };
     const now = Date.now(), upcoming = list.bookings.filter(b => b.status === 'scheduled' && Date.parse(b.startsAt) >= now - 3600000), past = list.bookings.filter(b => !upcoming.includes(b)).reverse();
@@ -791,7 +871,7 @@
     const d = await api(`/api/admin/accounting?year=${acctYear}`), S = d.summary, base = '/api/admin/accounting', refresh = () => accounting();
     const today = new Date().toISOString().slice(0, 10);
     const year = select('Tax year', Array.from({ length: 6 }, (_, i) => [new Date().getFullYear() - i, new Date().getFullYear() - i]), acctYear);
-    year.ctl.addEventListener('change', () => { acctYear = Number(year.ctl.value); refresh(); });
+    year.ctl.addEventListener('change', guard(() => { acctYear = Number(year.ctl.value); return refresh(); }));
     const dl = (type, label) => el('a', { class: 'btn btn-sm btn-outline-primary', href: `${base}/export?type=${type}&year=${d.year}`, text: label });
     const lvl = { danger: 'danger', warning: 'warning', info: 'info' };
     const months = (() => {
@@ -963,7 +1043,7 @@
       out.replaceChildren(el('div', { class: 'd-flex flex-wrap gap-2 mb-3' }, ...(d.summary.length ? d.summary.map(s => badge(`${s.kind.replace(/_/g, ' ')}: ${s.n}`, /failed|gps_|shared/.test(s.kind) ? 'warning' : 'secondary')) : [el('span', { class: 'text-muted', text: 'No events in this period.' })])),
         d.events.length ? tableOf(['When', 'Event', 'Account', 'IP', 'Detail'], d.events.map(e => el('tr', {}, el('td', { text: new Date(e.at).toLocaleString() }), el('td', {}, badge(e.kind.replace(/_/g, ' '), e.severity === 'warn' ? 'warning' : 'secondary')), el('td', { text: e.email || (e.userId ? `user ${e.userId}` : '') }), el('td', { text: e.ip || '' }), el('td', { text: e.detail || '' })))) : null);
     };
-    days.ctl.addEventListener('change', draw); only.ctl.addEventListener('change', draw);
+    days.ctl.addEventListener('change', guard(draw)); only.ctl.addEventListener('change', guard(draw));
     view.replaceChildren(panel('Security log', el('p', { class: 'text-muted', text: 'Sign-in failures, account lockouts, fake-GPS and device-sharing findings, and admin overrides of time clock records. Accounts lock for 15 minutes after 8 failed sign-ins.' }), el('div', { class: 'row g-2 mb-3' }, el('div', { class: 'col-sm-4' }, days.wrap), el('div', { class: 'col-sm-4' }, only.wrap)), out));
     await draw();
   };
@@ -1043,28 +1123,85 @@
   };
 
   const routes = { dashboard, customers, employees, live: livePage, onboarding: onboardingPage, bookings: bookingsPage, toolphotos: toolPhotos, location: locationPage, jobs, estimator, accounting, company, zoho, seo, security, errors: errorLog, holidays, hr, knowledge, contacts, support, forum, reviews, projects, images, visitors, users, settings };
+  const routeError = (error, id) => {
+    if (error?.kind === 'stale') return;
+    const forbidden = error?.status === 403;
+    const heading = forbidden ? 'Admin access required' : 'Could not load this section';
+    const detail = describeError(error);
+    view.replaceChildren(panel(heading, el('p', { class: forbidden ? 'text-muted mb-0' : 'text-muted', text: detail }), forbidden ? null : btn('Try again', () => route(), 'btn-primary')));
+    if (forbidden) renderNav(id);
+  };
   async function route() {
     const key = location.hash.slice(1).split('/')[0], id = routes[key] ? key : 'dashboard';
+    routeController?.abort();
+    const controller = new AbortController(), generation = ++routeGeneration;
+    routeController = controller;
+    if (id !== 'live') { clearInterval(liveTimer); liveTimer = null; }
     $('#admin-title').textContent = SECTIONS.find(s => s[0] === id)[1];
     renderNav(id);
-    view.replaceChildren(el('p', { class: 'text-muted', text: 'Loading...' }));
-    try { await routes[id](); } catch (e) { if (e.status === 401 || e.status === 403) return boot(); view.replaceChildren(el('div', { class: 'alert alert-danger', text: e.message })); }
-    const off = $('#side'); if (off && window.bootstrap) bootstrap.Offcanvas.getInstance(off)?.hide();
+    view.setAttribute('aria-busy', 'true');
+    view.replaceChildren(el('div', { class: 'admin-loading', role: 'status' }, el('span', { class: 'spinner-border spinner-border-sm', 'aria-hidden': 'true' }), el('span', { text: 'Loading this section…' })));
+    try {
+      await routes[id]();
+      if (generation !== routeGeneration) return;
+      view.focus({ preventScroll: true });
+    } catch (e) {
+      if (generation !== routeGeneration || e?.kind === 'stale') return;
+      if (e?.status === 401) return showLogin('Your session expired. Sign in again to continue.');
+      routeError(e, id);
+    } finally {
+      if (generation === routeGeneration) {
+        view.removeAttribute('aria-busy');
+        const off = $('#side'); if (off && window.bootstrap) bootstrap.Offcanvas.getInstance(off)?.hide();
+      }
+    }
   }
 
   async function boot() {
+    const generation = ++authGeneration;
     let me = null;
-    try { me = (await api('/api/auth/me')).user; window.bbsI18n?.adopt(me.lang); } catch { /* signed out */ }
+    try { me = (await api('/api/auth/me')).user; window.bbsI18n?.adopt(me.lang); }
+    catch (e) {
+      if (generation !== authGeneration || e?.kind === 'stale') return;
+      if (e?.status === 401) { showLogin(); return; }
+      showLogin(describeError(e), { heading: 'Admin portal unavailable', intro: 'The sign-in service could not be reached. Nothing has been changed.', retry: true, tone: e?.kind === 'network' ? 'warning' : 'danger' });
+      return;
+    }
+    if (generation !== authGeneration) return;
     if (me && me.mustChangePassword) { location.replace('/account/change-password/'); return; }
-    $('#admin-app').hidden = !(me && me.admin); $('#admin-login').hidden = Boolean(me && me.admin);
-    if (me && me.admin) { $('#admin-user').textContent = me.email; try { badges.hr = (await api('/api/admin/hr')).pipeline.new; badges.location = (await api(`/api/admin/location?from=${new Date().toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`)).unacknowledged; } catch { /* optional */ } route(); }
-    else if (me) { const st = $('#login-form .form-status'); st.textContent = 'This account does not have admin access.'; }
+    if (!me?.admin) {
+      showLogin('This account does not have admin access. Sign in with an administrator account, or ask an administrator to grant access.', { heading: 'Admin access required', intro: 'You are signed in, but this portal is restricted to administrators.', tone: 'warning' });
+      return;
+    }
+    $('#admin-app').hidden = false; $('#admin-login').hidden = true; $('#login-retry').hidden = true;
+    $('#admin-user').textContent = me.email;
+    try {
+      const [hr, loc] = await Promise.all([api('/api/admin/hr'), api(`/api/admin/location?from=${new Date().toISOString().slice(0, 10)}&to=${new Date().toISOString().slice(0, 10)}`)]);
+      if (generation === authGeneration) { badges.hr = hr.pipeline.new; badges.location = loc.unacknowledged; }
+    } catch (e) {
+      if (e?.status === 401) { showLogin('Your session expired. Sign in again to continue.'); return; }
+      if (e?.kind !== 'stale') toast(describeError(e), e?.kind === 'validation' ? 'warning' : 'danger', () => boot());
+    }
+    if (generation === authGeneration) route();
   }
   $('#login-form').addEventListener('submit', async e => {
-    e.preventDefault(); const st = e.target.querySelector('.form-status'); st.textContent = '';
-    try { await send('/api/auth/login', 'POST', { email: $('#lg-email').value, password: $('#lg-pass').value }); await boot(); } catch (err) { st.textContent = err.message; }
+    e.preventDefault();
+    const form = e.target, st = form.querySelector('.form-status');
+    st.textContent = '';
+    await submitForm(form, async () => {
+      await send('/api/auth/login', 'POST', { email: $('#lg-email').value, password: $('#lg-pass').value });
+      await boot();
+    }, err => {
+      st.textContent = describeError(err);
+      st.className = `form-status mt-3 ${err?.kind === 'network' || err?.status >= 500 ? 'text-warning-emphasis' : 'text-danger'}`;
+      if (err?.kind === 'network' || err?.status >= 500) $('#login-retry').hidden = false;
+    });
   });
-  $('#logout').addEventListener('click', async () => { await send('/api/auth/logout', 'POST', {}); boot(); });
+  $('#login-retry').addEventListener('click', () => boot());
+  $('#logout').addEventListener('click', guard(async () => { await send('/api/auth/logout', 'POST', {}); await boot(); }));
   window.addEventListener('hashchange', () => { if (!$('#admin-app').hidden) route(); });
-  boot();
+  if (window.__adminPortalTestMode) {
+    window.__adminPortalTest = { api, boot, btn, empty, guard, panel, route, routes, submitForm, describeError, RequestError };
+  }
+  if (!window.__adminPortalNoBoot) boot();
 })();
