@@ -379,7 +379,8 @@ test('appointments: atomic capacity, duplicate protection, delivery state and ca
     assert.match(ics.data, /STATUS:CANCELLED/);
     assert.match(ics.data, new RegExp(`SEQUENCE:${appointment.sequence + 2}`));
     const repeated = await auth('POST', `/api/appointments/${appointment.id}/cancel`, {});
-    assert.equal(repeated.res.status, 400);
+    assert.equal(repeated.res.status, 200);
+    assert.equal(repeated.data.duplicate, true);
   } finally {
     await app.close();
   }
