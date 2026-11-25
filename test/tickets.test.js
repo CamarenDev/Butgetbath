@@ -3,7 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { EventEmitter } = require('node:events');
+const { PassThrough } = require('node:stream');
 const { createServer } = require('../server');
+const { createMailer, createReceiver } = require('../lib/mailer');
+const { createSeoSync } = require('../lib/seo-sync');
+const { analyze } = require('../lib/vision');
 
 async function start() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-tickets-'));
@@ -61,4 +66,101 @@ test('tickets accept videos, serve ranges, track priority and show appointments'
     assert.equal(list.data.requests[0].priority, 'urgent');
     assert.equal(list.data.requests[0].nextAppointment, null);
   } finally { t.close(); }
+});
+
+test('email and AI integrations expose truthful bounded provider outcomes', async () => {
+  const off = createMailer({ apiKey: '', from: '' });
+  assert.equal(off.capability().state, 'disabled');
+  assert.equal((await off({ to: 'x@example.com', subject: 'Test' })).ok, false);
+
+  const calls = [];
+  const mailer = createMailer({
+    apiKey: 'test-key', from: 'Budget Bath <test@example.com>',
+    fetchImpl: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ id: 'resend-message-id' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+  });
+  const sent = await mailer({ to: 'customer@example.com', subject: 'Contract fixture', text: 'hello' });
+  assert.equal(sent.ok, true);
+  assert.equal(JSON.parse(calls[0].init.body).from, 'Budget Bath <test@example.com>');
+
+  let attachmentUrl = 'https://attachments.resend.com/download/fixture';
+  const receiver = createReceiver({
+    apiKey: 'test-key',
+    fetchImpl: async url => {
+      if (String(url).includes('/attachments/')) return new Response(JSON.stringify({ download_url: attachmentUrl, content_type: 'image/png' }), { status: 200 });
+      return new Response(Buffer.from([0x89, 0x50, 0x4e, 0x47]), { status: 200, headers: { 'content-type': 'image/png', 'content-length': '4' } });
+    }
+  });
+  assert.equal((await receiver.getAttachment('email-1', 'att-1')).subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])), true);
+  attachmentUrl = 'https://evil.example/steal';
+  await assert.rejects(() => receiver.getAttachment('email-1', 'att-1'), /untrusted host/);
+
+  const vision = await analyze({
+    images: ['data:image/png;base64,iVBORw0KGgo='], notes: 'fixture', env: { AI_API_KEY: 'fixture-key' },
+    fetchImpl: async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ inputs: { length: 9, unknown: true }, confidence: 0.8 }) } }] }), { status: 200 })
+  });
+  assert.equal(vision.status, 200);
+  assert.equal(vision.result.inputs.length, 9);
+  assert.equal(vision.result.inputs.unknown, undefined);
+  assert.equal(vision.result.metadata.model.verified, false);
+  assert.equal(vision.result.metadata.model.source, 'bundled application default');
+});
+
+test('SEO sync coalesces overlap and commits once', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-seo-sync-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'dist'));
+  fs.writeFileSync(path.join(root, 'dist', 'old.txt'), 'old');
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => {};
+  let spawns = 0;
+  const seo = createSeoSync({
+    json() {}, fail() {}, currentUser() {}, isAdmin() { return true; }, env: { SEO_AUTO: '0' }, rootDir: root,
+    spawnImpl: () => { spawns++; return child; }
+  });
+  const first = seo.run('first');
+  const overlap = seo.run('overlap');
+  assert.equal(first, overlap);
+  fs.mkdirSync(path.join(root, 'dist.next'));
+  fs.writeFileSync(path.join(root, 'dist.next', 'new.txt'), 'new');
+  child.stdout.end('built\n');
+  child.stderr.end('');
+  child.emit('close', 0);
+  assert.equal(await first, true);
+  assert.equal(spawns, 1);
+  assert.equal(fs.readFileSync(path.join(root, 'dist', 'new.txt'), 'utf8'), 'new');
+  assert.equal(fs.existsSync(path.join(root, 'dist.next')), false);
+});
+
+test('SEO sync records spawn failure and bounds child output without partial publication', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bbs-seo-fail-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, 'dist'));
+  fs.writeFileSync(path.join(root, 'dist', 'old.txt'), 'stable');
+  const direct = createSeoSync({
+    json() {}, fail() {}, currentUser() {}, isAdmin() { return true; }, env: { SEO_AUTO: '0' }, rootDir: root,
+    spawnImpl: () => { throw new Error('spawn unavailable'); }
+  });
+  assert.equal(await direct.run('spawn failure'), false);
+  assert.match(direct.status().lastError, /spawn unavailable/);
+  assert.equal(fs.readFileSync(path.join(root, 'dist', 'old.txt'), 'utf8'), 'stable');
+
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => {};
+  const bounded = createSeoSync({
+    json() {}, fail() {}, currentUser() {}, isAdmin() { return true; }, env: { SEO_AUTO: '0' }, rootDir: root,
+    spawnImpl: () => child, outputLimit: 32
+  });
+  const failed = bounded.run('oversized output');
+  child.stderr.end('x'.repeat(5000));
+  child.emit('close', 2);
+  assert.equal(await failed, false);
+  assert.ok(bounded.status().lastError.length <= 1200);
+  assert.equal(fs.existsSync(path.join(root, 'dist.next')), false);
 });
