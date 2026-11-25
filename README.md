@@ -151,3 +151,9 @@ Admin → **Tool photos** lists every tool and supply on the crew checklist (`li
 
 New employees (created in Admin → Employees) sign in with the emailed setup link and see only the onboarding wizard (`assets/onboard.js`, `lib/onboarding.js`): personal and emergency details, W-4 withholding and I-9 section 1 answers with a typed e-signature, direct deposit (bank name and last 4 only), the employment agreement and location-tracking consent, then an experience profile (trades, 20 task comfort ratings, certifications, tools, vehicle). Each signature stores the typed name, IP, device, time and a SHA-256 of the exact text. Training (`lib/training.js`) has six lesson modules with quizzes (80% to pass) and a 10-question final exam (3 attempts); the admin sets 1-3 days (a new day unlocks about every 18 hours) and signs the employee off, which unlocks clock-in, jobs and field work (`employees.onboarding` is the stage; empty means onboarded, as for everyone hired earlier or hired with "Skip"). Quiz answers stay on the server and are shuffled per employee. Admin → **Onboarding** lists progress, finds people by task or trade experience, and edits the agreement text; each employee file shows signed documents, tax answers, training scores and experience.
 
+
+## Tool and supply photos
+
+Every tool and supply already has a built-in, detailed vector illustration (`lib/tool-art.js`, no API or key needed). It is served automatically until an admin uploads a real photo, which then replaces it.
+
+`AI_API_KEY=... node scripts/generate-tool-images.js` generates a realistic product photo for every tool and supply in the crew catalog (189 items) and stores it in the tool photo library. It skips tools that already have a photo (`--force` replaces them, `--only key,key` limits it, `--data-dir DIR` selects the data folder). Uses `AI_BASE_URL` and `AI_IMAGE_MODEL` (default `gpt-image-1`). Re-run to retry any failures.

@@ -434,7 +434,8 @@ fs.rmSync(out, { recursive: true, force: true });
 const write = (rel, data) => { const f = path.join(out, rel); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, data); };
 for (const p of pages) write(p.file || (p.url === '/' ? 'index.html' : p.url.slice(1) + 'index.html'), p.html = layout(p).replace(/loading="lazy"/g, 'loading="lazy" decoding="async" fetchpriority="low"').replace('<img src="/favicon.svg" alt=""', '<img src="/favicon.svg" alt="" fetchpriority="high"'));
 const seoStatePath = process.env.SEO_STATE || path.join(__dirname, 'data', 'seo-state.json');
-const seo = generateSeoFiles({ site, pages, statePath: seoStatePath,
+const galleryImages = (() => { try { return (JSON.parse(fs.readFileSync(path.join(__dirname, 'gallery.json'), 'utf8')).projects || []).filter(g => g.image && !g.sample).map(g => ({ src: g.image, title: g.title })); } catch { return []; } })();
+const seo = generateSeoFiles({ site, pages, images: galleryImages, statePath: seoStatePath,
   intro: `Bathroom remodeling and tile installation for homeowners in ${areaNames}, Illinois, plus downtown Chicago high-rise condos. Free in-home estimates.`,
   keyPages: ['/services/', '/service-areas/', '/how-it-works/', '/bathroom-remodel-cost/', '/bathroom-remodel-checklist/', '/gallery/', '/contact/'],
   towns: cityPages.map(cp => ({ name: cp.name, url: cityUrl(cp) })) });

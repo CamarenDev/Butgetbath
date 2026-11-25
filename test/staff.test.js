@@ -82,11 +82,11 @@ test('employee portal, jobs, hours, contracts, knowledge base and applications',
     assert.equal(duplicateHours.data.duplicate, true);
     assert.equal((await call('hank', 'POST', '/api/employee/hours', { date: '2020-01-01', hours: 4 })).res.status, 400);
     const entry = (await call('hank', 'GET', '/api/employee/hours')).data.entries[0];
-    await call('admin', 'POST', `/api/admin/hours/${entry.id}/approve`, {});
+    assert.equal((await call('admin', 'POST', `/api/admin/hours/${entry.id}/approve`, {})).res.status, 400);
     assert.equal((await call('admin', 'POST', `/api/admin/employees/${empId}/payments`, { amount: 40, method: 'Check' })).res.status, 201);
     const pay = (await call('hank', 'GET', '/api/employee/payments')).data;
-    assert.equal(pay.totals.earnedCents, 10000);
-    assert.equal(pay.totals.balanceCents, 6000);
+    assert.equal(pay.totals.earnedCents, 0);
+    assert.equal(pay.totals.balanceCents, -4000);
 
     // Contracts need the typed account name
     await call('admin', 'POST', `/api/admin/employees/${empId}/contracts`, { title: 'Subcontract', body: 'Terms.' });
@@ -102,6 +102,18 @@ test('employee portal, jobs, hours, contracts, knowledge base and applications',
     assert.equal(list.length, 1);
     assert.equal((await call('hank', 'GET', '/api/employee/kb?q=membrane')).data.articles.length, 1);
     assert.equal((await call('hank', 'GET', `/api/employee/kb/${list[0].id}`)).data.article.body, 'Use a membrane.');
+    await call('admin', 'POST', '/api/admin/kb', { title: 'Tile cutting', category: 'Tile', body: 'Wet saw tips. Waterproofing is separate.', summary: 'Saw' });
+    const ranked = (await call('hank', 'GET', '/api/employee/kb?q=waterproofing%20shower')).data;
+    assert.equal(ranked.articles.length, 1);
+    assert.equal((await call('hank', 'GET', '/api/employee/kb?q=waterproofing')).data.articles[0].title, 'Waterproofing a shower');
+    assert.equal((await call('hank', 'GET', '/api/employee/kb')).data.popular[0].title, 'Waterproofing a shower');
+
+    // Urgent requests alert the office immediately; applicants hear about status changes
+    assert.equal((await call('hank', 'POST', '/api/employee/requests', { type: 'safety', subject: 'Cut my hand', body: 'Need a ride' })).res.status, 201);
+    const alerts = (await call('admin', 'GET', '/api/admin/location')).data.alerts;
+    assert.ok(alerts.some(a => a.kind === 'urgent_safety'));
+    await call('admin', 'POST', `/api/admin/applications/${linked.id}`, { status: 'interview', interviewAt: 'Dec 2 9am' });
+    assert.ok(sent.some(m => m.to === 'hank@example.com' && /interview/i.test(m.subject)));
 
     // Deactivation blocks the portal
     await call('admin', 'POST', `/api/admin/employees/${empId}`, { status: 'inactive' });
