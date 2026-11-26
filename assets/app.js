@@ -57,10 +57,40 @@ document.querySelectorAll('form[data-form]').forEach(form => {
   const reveal = nodes => { const io = 'IntersectionObserver' in window ? new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .12 }) : null; nodes.forEach(n => io ? io.observe(n) : n.classList.add('in')); };
   const sampleBadge = x => x.sample ? el('span', { class: 'badge-sample', text: 'Sample' }) : '';
 
-  const projectCard = p => el('figure', { class: 'work-card reveal', 'data-cat': p.category },
-    el('button', { type: 'button', class: 'work-open', 'data-src': p.image, 'data-title': p.title, 'data-caption': `${p.summary} ${p.county}`.trim(), 'aria-label': `Open ${p.title}` },
-      el('img', { src: p.image, alt: p.alt, loading: 'lazy', width: '800', height: '900' }), sampleBadge(p),
-      el('figcaption', {}, el('span', { class: 'chip', text: p.category }), el('strong', { text: p.title }), el('small', { text: p.county }))));
+  const projectCard = p => {
+    const caption = `${p.summary} ${p.county}`.trim();
+    if (!p.tier1 || !p.tier2) {
+      return el('figure', { class: 'work-card reveal', 'data-cat': p.category },
+        el('button', { type: 'button', class: 'work-open', 'data-src': p.image, 'data-title': p.title, 'data-caption': caption, 'aria-label': `Open ${p.title}` },
+          el('img', { src: p.image, alt: p.alt, loading: 'lazy', width: '800', height: '900' }), sampleBadge(p),
+          el('figcaption', {}, el('span', { class: 'chip', text: p.category }), el('strong', { text: p.title }), el('small', { text: p.county }))));
+    }
+
+    const after = el('img', { src: p.tier1, alt: `${p.alt}, Tier 1 finish`, loading: 'lazy', width: '960', height: '540' });
+    const afterOpen = el('button', { type: 'button', class: 'work-open transformation-photo', 'data-src': p.tier1, 'data-title': `${p.title} — Tier 1`, 'data-caption': caption, 'aria-label': `Open ${p.title}, Tier 1 finish` },
+      after, el('span', { class: 'transformation-tag after-tag', text: 'After · Tier 1' }));
+    const photos = [afterOpen];
+    if (p.before) {
+      photos.unshift(el('button', { type: 'button', class: 'work-open transformation-photo', 'data-src': p.before, 'data-title': `${p.title} — Before`, 'data-caption': caption, 'aria-label': `Open ${p.title}, before` },
+        el('img', { src: p.before, alt: `${p.alt}, before`, loading: 'lazy', width: '960', height: '540' }),
+        el('span', { class: 'transformation-tag before-tag', text: 'Before' })));
+    } else {
+      photos.push(el('button', { type: 'button', class: 'work-open transformation-photo', 'data-src': p.tier2, 'data-title': `${p.title} — Tier 2`, 'data-caption': caption, 'aria-label': `Open ${p.title}, Tier 2 finish` },
+        el('img', { src: p.tier2, alt: `${p.alt}, Tier 2 finish`, loading: 'lazy', width: '960', height: '540' }),
+        el('span', { class: 'transformation-tag tier-two-tag', text: 'Tier 2' })));
+    }
+
+    const tierSwitch = p.before ? el('div', { class: 'tier-switch', role: 'group', 'aria-label': `Choose an after finish for ${p.title}` },
+      el('button', { type: 'button', class: 'tier-button active', 'data-tier': '1', 'data-image': p.tier1, 'aria-pressed': 'true', text: 'Tier 1 finish' }),
+      el('button', { type: 'button', class: 'tier-button', 'data-tier': '2', 'data-image': p.tier2, 'aria-pressed': 'false', text: 'Tier 2 finish' })) : '';
+    return el('figure', { class: 'work-card transformation-card reveal', 'data-cat': p.category },
+      el('div', { class: 'transformation-pair' }, ...photos),
+      tierSwitch,
+      el('figcaption', { class: 'transformation-details' },
+        el('span', { class: 'chip', text: p.concept ? 'Design concept' : p.category }),
+        el('strong', { text: p.title }),
+        el('small', { text: p.summary })));
+  };
   const reviewCard = r => el('blockquote', { class: 'review-card reveal' }, sampleBadge(r),
     el('span', { class: 'stars', role: 'img', 'aria-label': `${r.rating} out of 5 stars`, text: '\u2605'.repeat(r.rating) + '\u2606'.repeat(5 - r.rating) }),
     el('p', { text: `\u201c${r.text}\u201d` }),
@@ -89,6 +119,23 @@ document.querySelectorAll('form[data-form]').forEach(form => {
       dlg.querySelector('.lb-next').disabled = list.length < 2;
     };
     grid.addEventListener('click', e => {
+      const tier = e.target.closest('[data-tier]');
+      if (tier) {
+        const card = tier.closest('.transformation-card');
+        const after = card.querySelector('.after-tag');
+        const photo = after.closest('.work-open');
+        const selected = tier.dataset.tier;
+        card.querySelectorAll('[data-tier]').forEach(button => {
+          button.classList.toggle('active', button === tier);
+          button.setAttribute('aria-pressed', String(button === tier));
+        });
+        photo.querySelector('img').src = tier.dataset.image;
+        photo.dataset.src = tier.dataset.image;
+        photo.dataset.title = photo.dataset.title.replace(/Tier \d/, `Tier ${selected}`);
+        photo.setAttribute('aria-label', photo.getAttribute('aria-label').replace(/Tier \d/, `Tier ${selected}`));
+        after.textContent = `After · Tier ${selected}`;
+        return;
+      }
       const btn = e.target.closest('.work-open');
       if (!btn) return;
       list = [...grid.querySelectorAll('.work-card:not([hidden]) .work-open')];
@@ -148,6 +195,7 @@ document.querySelectorAll('form[data-form]').forEach(form => {
         if (box.dataset.portfolio === 'projects') {
           const items = projects.slice(0, limit);
           box.replaceChildren(...(items.length ? items.map(projectCard) : [el('div', { class: 'content-state content-state-empty' }, el('p', { text: 'Project photos are coming soon.' }))]));
+          box.classList.toggle('transformation-grid', items.some(item => item.tier1 && item.tier2));
           if (box.id === 'work-grid') filters(box, projects);
           lightbox(box);
         } else {
