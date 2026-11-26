@@ -223,16 +223,16 @@ test('admin portal API: access control, placeholders, uploads, review moderation
   else { await post('/api/auth/verify', { token: tokenFrom(sent.at(-1), 'verify') }); admin = (await post('/api/auth/login', { email: 'owner@example.test', password: 'correct horse battery' })).headers.get('set-cookie').split(';')[0]; }
   const get = async p => (await fetch(base + p, { headers: { Cookie: admin } })).json();
 
-  // Placeholder, then upload replaces it, then reset restores it
+  // Bundled fallback, then upload replaces it, then reset restores it
   const ph = await fetch(base + '/media/community-banner');
-  assert.match(ph.headers.get('content-type'), /svg/);
+  assert.match(ph.headers.get('content-type'), /png/);
   const slots = (await get('/api/admin/media')).slots;
   assert.ok(slots.find(s => s.slot === 'community-banner' && !s.custom));
   assert.strictEqual((await fetch(base + '/api/admin/media/community-banner', { method: 'POST', headers: { Cookie: admin, 'Content-Type': 'image/png', Origin: base }, body: Buffer.from('not an image') })).status, 415);
   assert.strictEqual((await fetch(base + '/api/admin/media/community-banner', { method: 'POST', headers: { Cookie: admin, 'Content-Type': 'image/png', Origin: base }, body: png })).status, 201);
   assert.match((await fetch(base + '/media/community-banner')).headers.get('content-type'), /png/);
   assert.strictEqual((await fetch(base + '/api/admin/media/community-banner', { method: 'DELETE', headers: { Cookie: admin, Origin: base } })).status, 200);
-  assert.match((await fetch(base + '/media/community-banner')).headers.get('content-type'), /svg/);
+  assert.match((await fetch(base + '/media/community-banner')).headers.get('content-type'), /png/);
 
   // Reviews are held for moderation, then published by the admin
   assert.strictEqual((await post('/api/reviews', { name: 'Dana', town: 'Geneva', rating: 5, text: 'Great tile work on our shower.' })).status, 201);
@@ -362,6 +362,12 @@ test('public UX markup exposes accessible states, controls and retry behavior', 
   assert.match(gallery, /aria-label="Previous project"/);
   assert.match(gallery, /aria-label="Next project"/);
   assert.match(gallery, /data-review-form novalidate/);
+  assert.match(gallery, /Transformation gallery/);
+  const portfolio = await (await fetch(base + '/api/public/portfolio')).json();
+  assert.strictEqual(portfolio.projects.filter(project => project.concept).length, 20);
+  assert.match(portfolio.projects[0].before, /^\/gallery\/before-01\.webp$/);
+  assert.match(portfolio.projects[0].tier2, /^\/gallery\/tier-2-01\.webp$/);
+  assert.strictEqual((await fetch(base + '/gallery/before-01.webp')).status, 200);
   const form = await (await fetch(base + '/contact/')).text();
   assert.match(form, /<label for="name"/);
   assert.match(form, /aria-live="polite"/);

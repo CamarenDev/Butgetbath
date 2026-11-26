@@ -129,6 +129,9 @@ html{scroll-padding-top:6rem;-webkit-text-size-adjust:100%}
 .dropdown-item.active{background:var(--accent);color:#fff}
 @media(max-width:1199.98px){.navbar-collapse{padding:.75rem 0 1rem}.navbar .nav-link{padding:.65rem .7rem!important;min-height:2.75rem}}
 .navbar-brand img{border-radius:9px}
+.navbar-brand .site-logo{display:block;width:min(17.5rem,64vw);height:auto;border-radius:0;box-shadow:none;object-fit:contain}
+.footer-logo-link{display:inline-block;background:#fff;border-radius:.75rem;padding:.35rem .6rem;line-height:0}
+.footer-logo{display:block;width:min(18rem,100%);height:auto}
 .site-header{transition:box-shadow .25s,background .25s}
 .hero{isolation:isolate}
 .hero h1{text-wrap:balance}
