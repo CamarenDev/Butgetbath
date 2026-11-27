@@ -27,6 +27,8 @@ DEFAULT_DOMAIN="budgetbathsolutions.com"
 DEFAULT_ADMIN_EMAIL="lcamarerna1@gmail.com"
 DEFAULT_DEV_EMAIL="lcamarerna1+dev@gmail.com"   # Gmail delivers +dev mail to the same inbox
 DOMAIN="" ADMIN_EMAIL="" DEV_EMAIL="" NOTIFY_EMAIL="" PHONE="" RESEND_KEY="" LE_EMAIL=""
+REPO_URL="https://github.com/CamarenDev/Butgetbath.git"
+REPAIR=0
 ASSUME_YES=0 WITH_NGINX=1 WITH_SSL=1 WITH_FIREWALL=1 RUN_TESTS=0 UNINSTALL=0
 
 if [ -t 1 ]; then G=$'\e[32m' R=$'\e[31m' Y=$'\e[33m' B=$'\e[1m' N=$'\e[0m'; else G= R= Y= B= N=; fi
@@ -51,6 +53,8 @@ Usage: sudo ./install.sh [options]
   --no-nginx             skip nginx (the app listens on the port directly)
   --no-ssl               skip the HTTPS certificate
   --no-firewall          do not touch the firewall
+  --repair               skip package installs; re-sync code, fix permissions/ownership, vhost and service
+  --repo URL             git repository used to restore missing project files (default $REPO_URL)
   --run-tests            also run the full test suite during the checks
   --yes                  never ask questions; use the options above and defaults
   --uninstall            stop and remove the service and code (keeps data and settings)
@@ -71,6 +75,8 @@ while [ $# -gt 0 ]; do
     --no-nginx) WITH_NGINX=0; WITH_SSL=0; shift ;;
     --no-ssl) WITH_SSL=0; shift ;;
     --no-firewall) WITH_FIREWALL=0; shift ;;
+    --repair) REPAIR=1; shift ;;
+    --repo) REPO_URL="${2:-}"; shift 2 ;;
     --run-tests) RUN_TESTS=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
@@ -110,7 +116,32 @@ case "${ID:-}${ID_LIKE:-}" in
   *) die "This installer supports Ubuntu and Debian. Detected: ${PRETTY_NAME:-unknown}." ;;
 esac
 command -v systemctl >/dev/null && [ -d /run/systemd/system ] || die "systemd is required (this looks like a container without it)."
-for f in server.js build.js package.json site.json; do [ -f "$SRC_DIR/$f" ] || die "Run install.sh from the project folder (missing $f)."; done
+REQUIRED_FILES=(server.js build.js content.js seo-content.js gallery.json package.json site.json .env.example lib scripts/create-accounts.js assets)
+missing_files() { local f; for f in "${REQUIRED_FILES[@]}"; do [ -e "$SRC_DIR/$f" ] || printf '%s ' "$f"; done; }
+MISSING="$(missing_files)"
+if [ -n "$MISSING" ]; then
+  warn "The project folder is incomplete (missing: $MISSING). Trying to restore it automatically."
+  command -v git >/dev/null || { apt-get update -qq >/dev/null 2>&1 || true; apt-get install -y -qq git >/dev/null; }
+  OWNER="$(stat -c '%u:%g' "$SRC_DIR")"
+  if [ -d "$SRC_DIR/.git" ] && git -C "$SRC_DIR" rev-parse HEAD >/dev/null 2>&1; then
+    git config --global --add safe.directory "$SRC_DIR" 2>/dev/null || true
+    git -C "$SRC_DIR" ls-files --deleted -z | xargs -0 -r git -C "$SRC_DIR" checkout -- || true
+    MISSING="$(missing_files)"
+  fi
+  if [ -n "$MISSING" ]; then
+    TMP_CLONE="$(mktemp -d)"
+    if git clone --depth 1 "$REPO_URL" "$TMP_CLONE/src" >/dev/null 2>&1; then
+      rsync -a --ignore-existing --exclude .git "$TMP_CLONE/src"/ "$SRC_DIR"/
+      chown -R "$OWNER" "$SRC_DIR"
+      ok "Restored missing files from $REPO_URL (existing files were left untouched)"
+    else
+      warn "Could not download $REPO_URL (private repository or no access)."
+    fi
+    rm -rf "$TMP_CLONE"
+    MISSING="$(missing_files)"
+  fi
+  [ -z "$MISSING" ] || die "Still missing: $MISSING. Upload the full project into $SRC_DIR (for example: rsync -av ./ root@SERVER:$SRC_DIR/) or pass --repo with a repository URL you can access, then re-run."
+fi
 ok "Project files found in $SRC_DIR"
 avail_mb=$(df -Pm /opt | awk 'NR==2{print $4}')
 [ "${avail_mb:-0}" -ge 1000 ] || warn "Only ${avail_mb}MB free on /opt; at least 1GB is recommended."
@@ -136,8 +167,11 @@ for v in "$PHONE" "$RESEND_KEY"; do [[ "$v" != *[\"\\\$\`]* ]] || die "Phone and
 [ "$WITH_SSL" -eq 1 ] && [ -z "$LE_EMAIL" ] && warn "No email for the HTTPS certificate; it will be registered without one."
 
 # ---------------------------------------------------------------- packages
-step "Installing system packages"
 export DEBIAN_FRONTEND=noninteractive
+if [ "$REPAIR" -eq 1 ] && command -v node >/dev/null && { [ "$WITH_NGINX" -eq 0 ] || command -v nginx >/dev/null; }; then
+  step "Repair mode: skipping package installs"
+else
+step "Installing system packages"
 if [ -n "$(dpkg --audit 2>/dev/null)" ]; then
   warn "dpkg has half-configured packages that are unrelated to this site; skipping their failing setup scripts so the install can continue."
   for pkg in $(dpkg --audit 2>/dev/null | awk '/^ [a-z0-9]/{print $1}'); do
@@ -175,10 +209,19 @@ fi
 [ "$(node_major)" -ge "$NODE_MAJOR" ] || die "Node.js $NODE_MAJOR or newer is required (found $(node -v 2>/dev/null || echo none))."
 NODE_BIN="$(command -v node)"
 ok "Node $(node -v) at $NODE_BIN"
+fi
+NODE_BIN="$(command -v node)"
 
 # ---------------------------------------------------------------- user, folders, code
 step "Installing the website"
 id "$APP_USER" >/dev/null 2>&1 || useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$APP_USER"
+systemctl stop "$SERVICE" 2>/dev/null || true
+port_busy() { ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1\$"; }
+if port_busy "$PORT"; then
+  OLD_PORT=$PORT
+  while port_busy "$PORT"; do PORT=$((PORT + 1)); done
+  warn "Port $OLD_PORT is used by another program (see: ss -tlnp | grep :$OLD_PORT); using port $PORT instead."
+fi
 install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "$DATA_DIR"
 install -d -m 0755 "$APP_DIR"
 install -d -m 0750 -o root -g "$APP_USER" "$CONF_DIR"
@@ -232,7 +275,11 @@ if [ -n "$RESEND_KEY" ] && [ -n "$DOMAIN" ] && get_env EMAIL_FROM | grep -q 'you
 fi
 if [ "$WITH_NGINX" -eq 1 ]; then set_env HOST 127.0.0.1; set_env TRUST_PROXY 1; fi
 chown root:"$APP_USER" "$ENV_FILE"; chmod 0640 "$ENV_FILE"
-chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+chown -R "$APP_USER":"$APP_USER" "$APP_DIR" "$DATA_DIR"
+chmod 0750 "$DATA_DIR"
+find "$APP_DIR" -type d -exec chmod u+rwx,go+rx {} + 2>/dev/null || true
+find "$APP_DIR" -type f -exec chmod u+rw,go+r {} + 2>/dev/null || true
+chmod 0750 "$CONF_DIR"; chown root:"$APP_USER" "$CONF_DIR"
 [ -n "$(get_env ADMIN_EMAILS)" ] || warn "ADMIN_EMAILS is empty: nobody can open /admin/ until you set it in $ENV_FILE and restart."
 [ -n "$(get_env RESEND_API_KEY)" ] || warn "No RESEND_API_KEY: emails (confirmations, reminders, alerts) are only written to the log."
 [ -n "$(get_env BUSINESS_PHONE)" ] || warn "No business phone number is set, so no call buttons will show on the site."
@@ -301,6 +348,11 @@ EOF
 systemctl daemon-reload
 systemctl enable "$SERVICE" >/dev/null 2>&1
 systemctl restart "$SERVICE"
+sleep 2
+if ! systemctl is-active --quiet "$SERVICE"; then
+  warn "The service did not start. Last log lines:"
+  journalctl -u "$SERVICE" -n 20 --no-pager >&2 || true
+fi
 ok "Service $SERVICE enabled (starts on boot, restarts if it crashes)"
 
 # ---------------------------------------------------------------- nginx + https + firewall
@@ -308,6 +360,23 @@ if [ "$WITH_NGINX" -eq 1 ]; then
   step "Configuring nginx"
   SERVER_NAME="${DOMAIN:-_}"
   [ -n "$DOMAIN" ] && SERVER_NAME="$DOMAIN www.$DOMAIN"
+  # Other vhosts (e.g. CloudPanel's own) that claim the same domain or the default site would
+  # shadow ours or fail on duplicate listeners, so they are moved aside (backed up, never deleted).
+  if [ -n "$DOMAIN" ]; then
+    BACKUP_DIR="/root/nginx-vhost-backup-$(date +%Y%m%d%H%M%S)"
+    for dir in /etc/nginx/sites-enabled /etc/nginx/conf.d; do
+      [ -d "$dir" ] || continue
+      for f in "$dir"/*; do
+        [ -e "$f" ] || [ -L "$f" ] || continue
+        [ "$(basename "$f")" = "$APP_NAME" ] && continue
+        if grep -qE "^[[:space:]]*server_name[^;]*[[:space:]](www\.)?${DOMAIN//./\\.}[[:space:];]" "$f" 2>/dev/null; then
+          install -d -m 0700 "$BACKUP_DIR"
+          mv "$f" "$BACKUP_DIR/"
+          warn "Moved conflicting nginx vhost $f to $BACKUP_DIR (restore it to undo)."
+        fi
+      done
+    done
+  fi
   cat > "/etc/nginx/sites-available/$APP_NAME" <<EOF
 server {
     listen 80;
@@ -330,7 +399,11 @@ EOF
   [ -n "$DOMAIN" ] && rm -f /etc/nginx/sites-enabled/default
   nginx -t >/dev/null 2>&1 || { nginx -t; die "nginx configuration test failed."; }
   systemctl enable nginx >/dev/null 2>&1
-  systemctl reload nginx 2>/dev/null || systemctl restart nginx
+  if ! { systemctl reload nginx 2>/dev/null || systemctl restart nginx 2>/dev/null; }; then
+    warn "nginx would not start. Checking who holds port 80/443:"
+    ss -tlnp 2>/dev/null | grep -E ':(80|443)\s' >&2 || true
+    die "nginx failed to start; stop whatever else listens on port 80/443 (shown above) and re-run."
+  fi
   ok "nginx proxies port 80 to the app"
 fi
 
